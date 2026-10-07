@@ -1,0 +1,47 @@
+project:
+  name: insurance-rag
+  python: "3.11"
+
+parsing:
+  table_mode: accurate
+  do_cell_matching: true
+  generate_page_images: false
+  max_pages: null
+  max_file_size_mb: 2048
+
+normalization:
+  article_regex: "제\\s*\\d+(?:조의\\d+|조)(?:\\s*\\([^)]*\\))?"
+  special_clause_regex: "^\\s*\\d+(?:-\\d+)+\\s+.+특별약관"
+  table_merge:
+    enabled: true
+    min_header_similarity: 0.72
+    max_page_gap: 1
+
+chunking:
+  text_target_tokens: 700
+  text_max_tokens: 1000
+  table_target_tokens: 900
+  table_max_rows: 30
+  context_overlap_rows: 1
+  expand_prev_next: 1
+
+embedding:
+  model: BAAI/bge-m3
+  use_fp16: true
+  batch_size: 8
+  max_length: 8192
+
+reranker:
+  model: BAAI/bge-reranker-v2-m3
+  use_fp16: true
+  top_k: 8
+
+retrieval:
+  dense_top_k: 30
+  lexical_top_k: 30
+  fusion_top_k: 30
+  rrf_k: 60
+
+storage:
+  chroma_path: ./artifacts/chroma
+  collection: insurance_policy_chunks

@@ -1,0 +1,51 @@
+# Python 3.11 only
+# Core document parsing
+docling==2.126.0
+
+# OCR backends (Docling fallback/benchmark)
+easyocr==1.7.2
+rapidocr-onnxruntime==1.4.4
+
+# Embedding / reranking
+FlagEmbedding==1.4.2
+sentence-transformers==6.0.1
+transformers>=4.55,<5
+# Install a CUDA/CPU build appropriate for the target server before this file when needed.
+torch>=2.6,<3
+
+# Vector / lexical retrieval
+chromadb==1.5.9
+rank-bm25==0.2.2
+
+# Data / validation
+pydantic>=2.11,<3
+pydantic-settings>=2.10,<3
+numpy>=2.0,<3
+pandas>=2.2,<3
+
+# PDF / image utilities
+pypdf>=6,<7
+PyMuPDF>=1.26,<2
+Pillow>=11,<12
+opencv-python-headless>=4.11,<5
+
+# Config / API / utilities
+PyYAML==6.0.2
+python-dotenv>=1.1,<2
+fastapi>=0.116,<1
+uvicorn>=0.35,<1
+loguru==0.7.3
+tqdm==4.67.1
+
+# Test
+pytest>=8.4,<9
+pytest-cov>=6,<7
+
+# PostgreSQL sidecar upload/search service (install manually in Python 3.11 venv)
+psycopg[binary]>=3.2,<4
+pgvector>=0.4,<1
+httpx>=0.27,<1
+python-multipart>=0.0.18,<1
+# Java symbol parsing: prefetch wheel and grammar artifacts for air-gapped host.
+tree-sitter-language-pack>=0.10,<2
+python-docx>=1.1,<2

@@ -1,0 +1,16 @@
+flowchart TB
+    U["운영자 업로드 HTML"] --> A["FastAPI 업로드·상태·검색"]
+    A --> F["격리 업로드 디렉터리"]
+    A --> P[("PostgreSQL 17 + pgvector")]
+    F --> W["Python 인덱싱 워커"]
+    W --> D["Java DRM adapter"]
+    D --> T["유형별 파서: 문서·로그·코드"]
+    T --> E["기존 BGE-M3 서비스"]
+    T --> P
+    E --> P
+    P --> H["정확 검색 + FTS + 벡터 검색"]
+    H --> R["RRF + 선택적 reranker"]
+    R --> A
+    C[("기존 ChromaDB")]
+    O["기존 OpenWebUI + Gemma"] --> C
+    O --> A
