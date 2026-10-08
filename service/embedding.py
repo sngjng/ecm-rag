@@ -7,6 +7,12 @@ from service.config import get_settings
 
 
 def embed(texts: list[str]) -> list[list[float]]:
+    """문자열 목록을 설정된 차원의 embedding 벡터로 변환한다.
+
+    test profile의 deterministic_stub은 같은 입력에 항상 같은 벡터를 만들어 DB/검색
+    통합 테스트를 모델 서버 없이 수행하게 한다. 운영 profile은 OpenAI 호환 BGE-M3
+    endpoint를 batch 단위로 호출하고 응답 개수·차원·유한값을 검증한다.
+    """
     if not texts:
         return []
     settings = get_settings().models.embedding
@@ -27,6 +33,8 @@ def embed(texts: list[str]) -> list[list[float]]:
     headers = {'Authorization': f'Bearer {settings.api_key}'} if settings.api_key else {}
     with httpx.Client(timeout=settings.timeout_seconds, headers=headers) as client:
         for start in range(0, len(texts), settings.batch_size):
+            # 모델의 입력 제한과 메모리 급증을 방지하기 위해 batch와 문자열 길이를 모두
+            # 설정값으로 제한한다.
             batch = texts[start:start + settings.batch_size]
             response = client.post(settings.base_url, json={
                 'model': settings.model,

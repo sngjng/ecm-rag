@@ -1,4 +1,9 @@
-"""API 프로세스와 독립 실행하는 PostgreSQL queue ingestion worker."""
+"""API 프로세스와 독립 실행하는 PostgreSQL queue ingestion worker.
+
+업무 흐름은 ``claim → heartbeat → DRM → parse → context 보강 → embedding → DB commit``
+순서다. API와 프로세스를 분리했기 때문에 대용량 PDF나 모델 지연이 HTTP 요청 시간을
+점유하지 않으며 worker 수를 독립적으로 조절할 수 있다.
+"""
 from __future__ import annotations
 
 import argparse
@@ -28,6 +33,8 @@ def lease_heartbeat(job_id: str, worker_id: str, interval_seconds: float):
     stop = threading.Event()
 
     def beat() -> None:
+        # daemon thread는 주 처리 스레드가 종료되면 프로세스를 붙잡지 않는다. 정상
+        # context 종료 시에는 stop event와 join으로 마지막 heartbeat를 정리한다.
         while not stop.wait(interval_seconds):
             try:
                 if not jobs.heartbeat(job_id, worker_id):
@@ -56,6 +63,8 @@ def _add_asset_context(items: list[Item], job: dict) -> list[Item]:
     ]
     prefix = "\n".join(f"[{name}] {value}" for name, value in values if value)
     for item in items:
+        # 화면에 보여줄 원문 item.text는 바꾸지 않고 embedding_text에만 ECM 메타데이터를
+        # 넣는다. 검색 품질과 사용자 인용 원문 보존을 동시에 만족시키기 위한 분리다.
         item.embedding_text = "\n\n".join(
             value for value in (prefix, item.embedding_text or item.text) if value
         )
@@ -63,6 +72,11 @@ def _add_asset_context(items: list[Item], job: dict) -> list[Item]:
 
 
 def _parse(job: dict, source: Path, output: Path) -> tuple[list[Item], dict]:
+    """Asset 유형과 확장자에 맞는 파서를 선택한다.
+
+    PDF만 Docling/OCR의 무거운 의존성을 지연 import하고, TXT·로그·소스는 가벼운
+    표준 라이브러리 경로로 처리한다.
+    """
     asset_type = job["asset_type"]
     suffix = source.suffix.lower()
     if asset_type == "document" and suffix == ".docx":
@@ -89,16 +103,24 @@ def _parse(job: dict, source: Path, output: Path) -> tuple[list[Item], dict]:
 
 
 def process(job_id: str, worker_id: str) -> None:
+    """worker가 claim한 작업 하나를 끝까지 처리한다.
+
+    성공 시 청크와 구조화 레코드가 하나의 DB 트랜잭션으로 저장되고 completed가 된다.
+    실패 시 원인 문자열을 기록하고 재시도 가능하면 queued, 소진하면 failed로 전환한다.
+    """
     settings = get_settings()
     job = jobs.get_job(job_id)
     if not job or job["status"] != "processing" or job["worker_id"] != worker_id:
         return
     raw = Path(job["source_path"])
+    # DB source_path가 조작됐더라도 설정된 업로드 루트 밖 파일은 절대 읽지 않는다.
     if not raw.resolve().is_relative_to(settings.paths.upload_root):
         jobs.fail_job(job_id, worker_id, "허용하지 않은 파일 경로")
         return
 
     output = settings.paths.artifact_root / str(job["version_id"])
+    # DRM 사용 시에만 생성되는 평문 임시파일이다. finally에서 성공/실패와 무관하게
+    # 삭제하며 canonical artifact와 DB 평문 보존 정책은 별도 접근통제로 관리한다.
     clear = output / ("decrypted" + raw.suffix)
     heartbeat_interval = max(10.0, settings.worker.lease_seconds / 3)
     try:
@@ -129,6 +151,7 @@ def process(job_id: str, worker_id: str) -> None:
 
 
 def run(poll_seconds: float | None = None) -> None:
+    """queue를 계속 poll하는 worker 프로세스 진입점."""
     settings = get_settings()
     settings.paths.upload_root.mkdir(parents=True, exist_ok=True)
     settings.paths.artifact_root.mkdir(parents=True, exist_ok=True)
@@ -136,6 +159,8 @@ def run(poll_seconds: float | None = None) -> None:
     poll = poll_seconds if poll_seconds is not None else settings.worker.poll_seconds
     logger.info("worker started id=%s profile=%s", worker_id, settings.runtime.environment)
     while True:
+        # 한 번에 가져오는 수는 profile의 claim_batch_size로 제한해 worker 하나가 queue를
+        # 독점하지 않게 한다.
         claimed = jobs.claim_jobs(
             worker_id,
             limit=settings.worker.claim_batch_size,

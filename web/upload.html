@@ -1,41 +1,153 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>보험약관AI · 자료 업로드</title>
-<style>
-:root{font-family:system-ui,'Malgun Gothic',sans-serif;color:#15243b;background:#f5f7fa}*{box-sizing:border-box}
-body{margin:0}.bar{background:#fff;border-bottom:1px solid #dbe3ed;padding:19px max(20px,calc((100vw - 960px)/2));font-weight:700;color:#0866ae}
-main{max-width:960px;margin:40px auto;padding:0 20px}.card{background:#fff;border:1px solid #e1e7ee;border-radius:16px;padding:28px;box-shadow:0 6px 24px #15243b0b}
-h1{font-size:25px;margin:0 0 8px}p{color:#50627a;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-label{display:block;font-size:14px;font-weight:650;margin-top:18px}input,select{display:block;width:100%;padding:12px;border:1px solid #c9d5e2;border-radius:8px;margin-top:7px;font:inherit;background:white}
-button{background:#0866ae;color:#fff;border:0;border-radius:8px;padding:13px 20px;font:inherit;font-weight:700;cursor:pointer;margin-top:24px}button:disabled{opacity:.5;cursor:default}
-#message{white-space:pre-wrap;background:#f2f6fb;border-radius:8px;padding:14px;margin-top:20px;min-height:48px}small{color:#607087}
-@media(max-width:680px){.grid{grid-template-columns:1fr}.card{padding:20px}}
-</style></head><body><div class="bar">보험약관AI · 지식자료 수집</div><main><div class="card"><h1>문서 업로드</h1>
-<p>파일은 서버의 지정된 업로드 디렉터리에 저장된 후, 별도 작업자가 문서 유형에 맞게 처리합니다.</p>
-<form id="upload"><label>API 키<input id="key" type="password" autocomplete="off" required placeholder="관리자에게 발급받은 키"></label>
-<div class="grid"><label>자산 유형<select name="asset_type" id="type"><option value="document">운영/보험 문서</option><option value="incident">장애 이력</option><option value="error_trace">로그·스택트레이스</option><option value="source_code">소스코드</option></select></label>
-<label>기존 Asset ID<input name="asset_id" placeholder="새 자산이면 비움, 새 버전이면 UUID"></label>
-<label>세부 유형<input name="subtype" value="general" placeholder="예: operation_manual"></label>
-<label>제목<input name="title" placeholder="비우면 파일명 사용"></label><label>제조사<input name="vendor" placeholder="예: IBM"></label>
-<label>제품<input name="product" placeholder="예: WebSphere"></label><label>시스템명<input name="system_name" placeholder="예: 계약계"></label>
-<label>서비스명<input name="service_name"></label><label>컴포넌트<input name="component"></label>
-<label>소유 부서<input name="owner_org"></label><label>보안등급<input name="security_level" value="internal"></label>
-<label>버전<input name="version_label" value="1" placeholder="예: 2026.09"></label><label>상태<select name="lifecycle_status"><option value="approved">승인</option><option value="draft">초안</option><option value="obsolete">폐기</option></select></label>
-<label>현재 버전<select name="is_current"><option value="true">예</option><option value="false">아니오</option></select></label><label>저장소 / 리포지토리<input name="repository" placeholder="소스코드는 필수"></label>
-<label>브랜치<input name="branch" placeholder="예: release/2026.09"></label><label>저장소 내 상대 경로<input name="logical_path" placeholder="예: src/main/java/.../Payment.java"></label>
-<label>파일<input type="file" name="file" id="file" required accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml"><small>기본 최대 100 MB. 파일 유형에 따라 허용 확장자가 다릅니다.</small></label></div>
-<button id="submit" type="submit">업로드하고 처리 시작</button></form><div id="message" role="status" aria-live="polite">대기 중</div></div></main>
-<script>
-const form=document.querySelector('#upload'),message=document.querySelector('#message'),button=document.querySelector('#submit');
-form.addEventListener('submit',async e=>{e.preventDefault();button.disabled=true;message.textContent='업로드 중…';
-const key=document.querySelector('#key').value,body=new FormData(form);try{
-const response=await fetch('/api/v1/ingestion/uploads',{method:'POST',headers:{'X-API-Key':key},body});const result=await response.json();
-if(!response.ok)throw new Error(JSON.stringify(result.detail));
-message.textContent=`접수 완료: ${result.asset_id}\n현재 상태: ${result.status}`;
-const jobId=result.job_id;
-for(let i=0;i<240;i++){await new Promise(resolve=>setTimeout(resolve,3000));const r=await fetch(`/api/v1/ingestion/jobs/${jobId}`,{headers:{'X-API-Key':key}});
-if(!r.ok)throw new Error('상태 조회 실패');const state=await r.json();
-message.textContent=`Asset: ${result.asset_id}\nVersion: ${result.version_id}\n작업 ID: ${jobId}\n상태: ${state.status}\n시도: ${state.attempts}/${state.max_attempts}\n인덱싱된 청크: ${state.chunk_count}`+(state.error_detail?`\n오류: ${state.error_detail}`:'');
-if(state.status==='completed'||state.status==='failed')break;}
-}catch(error){message.textContent=`요청 실패: ${error.message}`;}finally{button.disabled=false;}});
-</script></body></html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECM 문서 자산화 · 자료 업로드</title>
+  <style>
+    /*
+     * 별도 프런트엔드 빌드 도구 없이 폐쇄망에 배포할 수 있도록 CSS와 JavaScript를
+     * 단일 HTML에 둔다. 이 화면은 업무 접수 UI이며 실제 문서 처리는 worker가 수행한다.
+     */
+    :root { font-family: system-ui, 'Malgun Gothic', sans-serif; color: #15243b; background: #f5f7fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .bar { background: #fff; border-bottom: 1px solid #dbe3ed; padding: 19px max(20px, calc((100vw - 960px) / 2)); font-weight: 700; color: #0866ae; }
+    main { max-width: 960px; margin: 40px auto; padding: 0 20px; }
+    .card { background: #fff; border: 1px solid #e1e7ee; border-radius: 16px; padding: 28px; box-shadow: 0 6px 24px #15243b0b; }
+    h1 { font-size: 25px; margin: 0 0 8px; }
+    p { color: #50627a; line-height: 1.6; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    label { display: block; font-size: 14px; font-weight: 650; margin-top: 18px; }
+    input, select { display: block; width: 100%; padding: 12px; border: 1px solid #c9d5e2; border-radius: 8px; margin-top: 7px; font: inherit; background: white; }
+    button { background: #0866ae; color: #fff; border: 0; border-radius: 8px; padding: 13px 20px; font: inherit; font-weight: 700; cursor: pointer; margin-top: 24px; }
+    button:disabled { opacity: .5; cursor: default; }
+    #message { white-space: pre-wrap; background: #f2f6fb; border-radius: 8px; padding: 14px; margin-top: 20px; min-height: 48px; }
+    small { color: #607087; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } .card { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="bar">ECM 문서 자산화 · 지식자료 수집</div>
+  <main>
+    <div class="card">
+      <h1>문서 자산 등록</h1>
+      <p>원본 파일과 업무 메타데이터를 등록하면 API가 작업을 접수하고 별도 worker가 파싱·임베딩·인덱싱합니다.</p>
+
+      <!--
+        form의 name은 POST /api/v1/ingestion/uploads의 Form 파라미터와 동일하다.
+        필드를 변경할 때는 service/routes/ingestion.py의 upload() 계약도 함께 검토한다.
+      -->
+      <form id="upload">
+        <!-- API 키는 FormData에 포함하지 않고 X-API-Key 헤더로만 전달한다. -->
+        <label>API 키
+          <input id="key" type="password" autocomplete="off" required placeholder="관리자에게 발급받은 키">
+        </label>
+
+        <div class="grid">
+          <label>자산 유형
+            <select name="asset_type" id="type">
+              <option value="document">업무/기술 문서</option>
+              <option value="incident">장애 이력</option>
+              <option value="error_trace">로그·스택트레이스</option>
+              <option value="source_code">소스코드</option>
+            </select>
+          </label>
+          <label>기존 Asset ID
+            <input name="asset_id" placeholder="신규 자산이면 비움, 새 버전이면 UUID">
+          </label>
+          <label>세부 유형<input name="subtype" value="general" placeholder="예: operation_manual"></label>
+          <label>제목<input name="title" placeholder="비우면 파일명 사용"></label>
+          <label>제조사<input name="vendor" placeholder="예: IBM"></label>
+          <label>제품<input name="product" placeholder="예: WebSphere"></label>
+          <label>시스템명<input name="system_name" placeholder="예: 전자결재"></label>
+          <label>서비스명<input name="service_name"></label>
+          <label>컴포넌트<input name="component"></label>
+          <label>소유 부서<input name="owner_org"></label>
+          <label>보안등급<input name="security_level" value="internal"></label>
+          <label>버전<input name="version_label" value="1" placeholder="예: 2026.09"></label>
+          <label>수명주기 상태
+            <select name="lifecycle_status">
+              <option value="approved">승인</option>
+              <option value="draft">초안</option>
+              <option value="obsolete">폐기</option>
+            </select>
+          </label>
+          <label>현재 버전
+            <select name="is_current"><option value="true">예</option><option value="false">아니오</option></select>
+          </label>
+          <label>저장소 / 리포지토리<input name="repository" placeholder="소스코드는 필수"></label>
+          <label>브랜치<input name="branch" placeholder="예: release/2026.09"></label>
+          <label>저장소 내 상대 경로<input name="logical_path" placeholder="예: src/main/java/.../Payment.java"></label>
+          <label>파일
+            <input type="file" name="file" id="file" required
+                   accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml">
+            <small>기본 최대 100 MB. 자산 유형마다 허용 확장자가 다릅니다.</small>
+          </label>
+        </div>
+
+        <button id="submit" type="submit">업로드하고 처리 시작</button>
+      </form>
+      <!-- aria-live를 사용해 polling 결과를 보조기기에도 알린다. -->
+      <div id="message" role="status" aria-live="polite">대기 중</div>
+    </div>
+  </main>
+
+  <script>
+    const form = document.querySelector('#upload');
+    const message = document.querySelector('#message');
+    const button = document.querySelector('#submit');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true; // 중복 클릭으로 동일 파일이 여러 번 접수되는 것을 방지한다.
+      message.textContent = '업로드 중…';
+
+      const key = document.querySelector('#key').value;
+      const body = new FormData(form);
+
+      try {
+        // 1단계: 파일 저장, Asset/Version 생성, ingestion job 등록까지만 수행한다.
+        // 파싱과 임베딩은 요청 안에서 실행하지 않으므로 응답 코드는 202 Accepted다.
+        const response = await fetch('/api/v1/ingestion/uploads', {
+          method: 'POST',
+          headers: { 'X-API-Key': key },
+          body,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(result.detail));
+
+        message.textContent = `접수 완료: ${result.asset_id}\n현재 상태: ${result.status}`;
+        const jobId = result.job_id;
+
+        // 2단계: worker가 비동기로 처리하므로 3초 간격으로 최대 12분간 상태를 조회한다.
+        // queued → processing → completed가 정상 경로이며 재시도 소진 시 failed가 된다.
+        for (let attempt = 0; attempt < 240; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const statusResponse = await fetch(`/api/v1/ingestion/jobs/${jobId}`, {
+            headers: { 'X-API-Key': key },
+          });
+          if (!statusResponse.ok) throw new Error('상태 조회 실패');
+
+          const state = await statusResponse.json();
+          message.textContent =
+            `Asset: ${result.asset_id}\n` +
+            `Version: ${result.version_id}\n` +
+            `작업 ID: ${jobId}\n` +
+            `상태: ${state.status}\n` +
+            `시도: ${state.attempts}/${state.max_attempts}\n` +
+            `인덱싱된 청크: ${state.chunk_count}` +
+            (state.error_detail ? `\n오류: ${state.error_detail}` : '');
+
+          if (state.status === 'completed' || state.status === 'failed') break;
+        }
+      } catch (error) {
+        // FastAPI의 detail 또는 네트워크 오류를 운영자가 화면에서 바로 확인할 수 있게 한다.
+        message.textContent = `요청 실패: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

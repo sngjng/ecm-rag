@@ -223,6 +223,12 @@ def _resolve_paths(settings: AppSettings) -> AppSettings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
+    """공통 YAML, 환경 profile, 환경 변수 순서로 최종 설정을 생성한다.
+
+    우선순위는 ``settings.yaml < profiles/{profile}.yaml < 환경 변수 치환값``이다.
+    Pydantic의 ``extra=forbid`` 정책으로 오탈자 설정을 조용히 무시하지 않고 시작 시
+    실패시킨다. 결과는 프로세스 동안 캐시해 매 요청마다 파일을 읽지 않는다.
+    """
     config_path = Path(os.environ.get("RAG_CONFIG_FILE", ROOT / "config" / "settings.yaml"))
     data = _read_yaml(config_path)
     profile = os.environ.get("RAG_PROFILE", str(data.pop("default_profile", "local"))).strip()

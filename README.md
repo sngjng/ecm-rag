@@ -57,7 +57,9 @@ PostgreSQL queue ◀──── 별도 Python worker
 
 편집 가능한 전체 구성도는 [ARCHITECTURE_EDITABLE.mmd](ARCHITECTURE_EDITABLE.mmd),
 설계 설명은 [ARCHITECTURE.md](ARCHITECTURE.md), 변경 작업 기록은
-[WORKLOG_PGVECTOR.md](WORKLOG_PGVECTOR.md)를 참고하세요.
+[WORKLOG_PGVECTOR.md](WORKLOG_PGVECTOR.md)를 참고하세요. 업로드 화면의 입력 필드부터
+호출 API, DB queue, worker와 검색까지 이어지는 코드 리뷰용 업무 흐름은
+[SCREEN_API_WORKFLOW.md](SCREEN_API_WORKFLOW.md)에 정리되어 있습니다.
 
 ## 설치
 

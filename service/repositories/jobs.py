@@ -1,4 +1,9 @@
-"""영속 ingestion queue와 처리 결과 저장소."""
+"""PostgreSQL 기반 영속 ingestion queue와 처리 결과 repository.
+
+별도 message broker 없이 DB row를 queue로 사용한다. 여러 worker가 동시에 실행돼도
+``FOR UPDATE SKIP LOCKED``로 한 작업을 한 worker만 가져가며, lease/heartbeat로
+비정상 종료 작업을 다시 회수한다.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -12,6 +17,7 @@ from service.parsers import Item
 
 
 def get_job(job_id: UUID | str) -> dict[str, Any] | None:
+    """worker 처리에 필요한 Job, Version, Asset 문맥을 한 번에 조회한다."""
     with connect() as conn:
         return conn.execute(
             """SELECT j.*, v.asset_id, v.version_label, v.source_filename, v.source_path,
@@ -29,6 +35,8 @@ def get_job(job_id: UUID | str) -> dict[str, Any] | None:
 def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[str, Any]]:
     """대기 작업 또는 lease가 만료된 작업을 여러 워커 사이에서 원자적으로 확보한다."""
     with connect() as conn:
+        # lease가 만료됐고 최대 시도 횟수까지 사용한 작업은 더 이상 재획득하지 않고
+        # failed로 종결한다. 이 UPDATE와 아래 claim은 같은 트랜잭션에서 실행된다.
         conn.execute(
             """UPDATE ingestion_jobs
                SET status='failed', error_detail='worker lease 만료 및 최대 재시도 초과',
@@ -38,6 +46,8 @@ def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[s
                  AND attempts >= max_attempts""",
             (lease_seconds,),
         )
+        # SKIP LOCKED는 다른 worker가 잡은 row를 기다리지 않고 다음 후보를 선택한다.
+        # attempts는 claim 시점에 증가하므로 프로세스 강제 종료도 재시도 횟수에 포함된다.
         return conn.execute(
             """WITH candidates AS (
                  SELECT job_id
@@ -61,6 +71,7 @@ def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[s
 
 
 def heartbeat(job_id: UUID | str, worker_id: str) -> bool:
+    """처리 중 lease를 연장한다. 소유 worker가 달라지면 갱신하지 않는다."""
     with connect() as conn:
         row = conn.execute(
             """UPDATE ingestion_jobs SET heartbeat_at=now(), updated_at=now()
@@ -82,6 +93,8 @@ def complete_job(
     if len(items) != len(vectors):
         raise ValueError("청크와 임베딩 수가 다릅니다")
     with connect() as conn:
+        # Job row를 잠그고 현재 worker가 실제 소유자인지 다시 확인한다. lease를 잃은
+        # worker가 늦게 결과를 덮어쓰는 것을 방지한다.
         job = conn.execute(
             """SELECT j.version_id, v.asset_id, a.system_name
                FROM ingestion_jobs j JOIN asset_versions v USING(version_id)
@@ -92,7 +105,8 @@ def complete_job(
         if not job:
             raise RuntimeError("처리 중인 작업을 찾을 수 없습니다")
         asset_id, version_id = job["asset_id"], job["version_id"]
-        # 재시도 시 이전 부분 결과가 남지 않도록 version 단위로 교체한다.
+        # 재시도 시 이전 부분 결과가 남지 않도록 version 단위로 교체한다. 아래 청크,
+        # 오류 이벤트, 심볼, job 완료 갱신은 모두 같은 트랜잭션으로 commit된다.
         conn.execute("DELETE FROM chunks WHERE version_id=%s", (version_id,))
         for sequence, (item, vector) in enumerate(zip(items, vectors)):
             chunk_id = f"{version_id}:{sequence:06d}"
@@ -116,6 +130,7 @@ def complete_job(
                     np.asarray(vector, dtype=np.float32),
                 ),
             )
+            # 로그 파서가 구조화한 오류는 원문 청크와 별도 정규화 테이블에 함께 저장한다.
             if item.error:
                 event_id = uuid4()
                 error = item.error
@@ -144,6 +159,7 @@ def complete_job(
                             frame.get("line_number"), frame.get("is_application_code"),
                         ),
                     )
+            # 소스 파서가 찾은 클래스/함수 심볼은 파일·라인 탐색용 테이블에 저장한다.
             if item.symbol:
                 symbol = item.symbol
                 conn.execute(
@@ -190,6 +206,7 @@ def fail_job(job_id: UUID | str, worker_id: str, detail: str) -> str:
 
 
 def retry_job(job_id: UUID | str) -> dict[str, Any] | None:
+    """운영자가 최종 실패/취소 작업을 명시적으로 재접수할 때 상태를 초기화한다."""
     with connect() as conn:
         return conn.execute(
             """UPDATE ingestion_jobs SET status='queued', attempts=0, worker_id=NULL,

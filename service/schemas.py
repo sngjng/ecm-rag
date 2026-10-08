@@ -1,4 +1,8 @@
-"""HTTP와 repository 사이에서 사용하는 명시적 데이터 계약."""
+"""HTTP 요청과 repository 사이에서 사용하는 명시적 데이터 계약.
+
+Literal과 Field 제약은 잘못된 값이 SQL 계층까지 내려가기 전에 422 응답으로 차단한다.
+PATCH DTO는 unset과 명시적 null을 구분해 필수 업무 필드가 null이 되지 않게 한다.
+"""
 from __future__ import annotations
 
 from typing import Any, Literal

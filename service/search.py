@@ -1,4 +1,8 @@
-"""PostgreSQL exact + FTS + pgvector 검색을 RRF와 선택적 reranker로 통합한다."""
+"""PostgreSQL exact + FTS + pgvector 검색을 통합하는 hybrid retrieval 서비스.
+
+동일한 질의를 식별자, 전문검색, 의미검색 lane에 각각 보내고 RRF(Reciprocal Rank
+Fusion)로 순위를 결합한다. 선택적으로 로컬 reranker를 마지막 단계에 적용한다.
+"""
 from __future__ import annotations
 
 import re
@@ -17,6 +21,7 @@ TOKEN = re.compile(r"[\w.$/-]{3,}", re.UNICODE)
 
 @lru_cache(maxsize=2)
 def get_reranker(path: str, use_fp16: bool):
+    """무거운 reranker 모델을 프로세스당 한 번만 로드한다."""
     from retrieval.reranker import BgeReranker
     return BgeReranker(path, use_fp16=use_fp16)
 
@@ -28,6 +33,11 @@ def _filters(
     product: str | None,
     include_obsolete: bool,
 ) -> tuple[str, tuple]:
+    """모든 검색 lane에 동일하게 적용할 ECM 메타데이터/수명주기 필터를 만든다.
+
+    ``::text`` cast는 선택 필터 값이 None일 때 PostgreSQL의 indeterminate datatype
+    오류를 방지한다. include_obsolete=true이면 현재·승인 버전 기본 제한도 해제한다.
+    """
     retrieval = get_settings().retrieval
     require_current = retrieval.current_versions_only and not include_obsolete
     require_approved = retrieval.approved_versions_only and not include_obsolete
@@ -56,6 +66,7 @@ def search(
     include_obsolete: bool = False,
     limit: int | None = None,
 ) -> list[dict]:
+    """검색 후보를 생성·융합하고 화면/LLM이 사용할 근거 메타데이터를 반환한다."""
     settings = get_settings()
     retrieval = settings.retrieval
     limit = limit or retrieval.default_limit
@@ -70,7 +81,9 @@ def search(
             "SELECT set_config('hnsw.ef_search', %s, true)",
             (str(settings.database.vector.hnsw_ef_search),),
         )
-        # Error code, 예외명, 파일명, 클래스/메서드 같은 식별자는 exact/substring 검색을 우선한다.
+        # Lane 1: 에러코드, 예외명, 파일명, 클래스/메서드 같은 식별자는 exact 또는
+        # substring 검색을 우선한다. 자연어 단어 전부를 ILIKE로 검색하지 않도록 토큰을
+        # 숫자/점/대문자 특징으로 제한한다.
         identifiers = [
             token for token in TOKEN.findall(query)
             if any(char.isdigit() for char in token) or "." in token or token[0].isupper()
@@ -87,6 +100,7 @@ def search(
             ).fetchall()
             lanes.append([row["chunk_id"] for row in rows])
 
+        # Lane 2: PostgreSQL generated tsvector를 이용한 lexical full-text search.
         rows = conn.execute(
             """SELECT c.chunk_id
                FROM chunks c JOIN assets a USING(asset_id)
@@ -99,6 +113,7 @@ def search(
         ).fetchall()
         lanes.append([row["chunk_id"] for row in rows])
 
+        # Lane 3: 질의를 문서 청크와 같은 embedding 모델로 변환한 cosine 근접 검색.
         query_vector = np.asarray(embed([query])[0], dtype=np.float32)
         rows = conn.execute(
             """SELECT c.chunk_id
@@ -110,6 +125,7 @@ def search(
         ).fetchall()
         lanes.append([row["chunk_id"] for row in rows])
 
+        # 점수 단위가 서로 다른 세 lane을 직접 더하지 않고 순위 기반 RRF로 결합한다.
         fused = reciprocal_rank_fusion(lanes, k=retrieval.rrf_k)
         rrf_scores = dict(fused)
         ranked = [chunk_id for chunk_id, _ in fused[:retrieval.fusion_top_k]]
@@ -131,6 +147,7 @@ def search(
         ranked = [chunk_id for chunk_id in ranked if chunk_id in by_id]
         rerank_scores: dict[str, float] = {}
         reranker = settings.models.reranker
+        # reranker는 후보 축소 후에만 실행해 모델 비용을 제한한다.
         if reranker.enabled and ranked:
             reranked = get_reranker(reranker.model_path, reranker.use_fp16).rerank(
                 query, [by_id[chunk_id]["content"] for chunk_id in ranked],
@@ -141,6 +158,7 @@ def search(
 
         selected = ranked[:limit]
         neighbor_ids: set[str] = set()
+        # 선택 청크의 앞뒤 문맥은 검색 순위에는 영향을 주지 않고 응답 근거로만 붙인다.
         if retrieval.expand_neighbors:
             for chunk_id in selected:
                 row = by_id[chunk_id]

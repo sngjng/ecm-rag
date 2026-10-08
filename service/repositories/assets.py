@@ -1,4 +1,8 @@
-"""Asset/Version/Relation PostgreSQL CRUD."""
+"""Asset/Version/Relation PostgreSQL repository.
+
+이 계층은 HTTP를 알지 못하며 SQL과 트랜잭션만 담당한다. 반환값은 ``dict_row``로
+변환된 DB row이고, UUID·datetime 직렬화는 FastAPI 응답 계층이 처리한다.
+"""
 from __future__ import annotations
 
 from datetime import date
@@ -13,6 +17,7 @@ from service.schemas import AssetCreate, AssetUpdate, RelationCreate
 
 
 def create_asset(payload: AssetCreate) -> dict[str, Any]:
+    """논리 문서 자산의 식별자와 업무 메타데이터를 생성한다."""
     asset_id = uuid4()
     with connect() as conn:
         return conn.execute(
@@ -29,6 +34,7 @@ def create_asset(payload: AssetCreate) -> dict[str, Any]:
 
 
 def get_asset(asset_id: UUID | str, *, include_deleted: bool = False) -> dict[str, Any] | None:
+    """Asset 단건 조회. 기본값은 soft delete된 행을 제외한다."""
     condition = "" if include_deleted else " AND deleted_at IS NULL"
     with connect() as conn:
         return conn.execute(
@@ -41,6 +47,11 @@ def list_assets(
     *, asset_type: str | None = None, system_name: str | None = None,
     limit: int = 50, offset: int = 0,
 ) -> list[dict[str, Any]]:
+    """선택 조건과 offset pagination으로 활성 Asset을 조회한다.
+
+    nullable filter의 첫 placeholder에 ``::text``를 명시한 이유는 값이 ``None``일 때
+    PostgreSQL이 파라미터 타입을 추론하지 못하는 오류를 방지하기 위해서다.
+    """
     with connect() as conn:
         return conn.execute(
             """SELECT * FROM assets
@@ -53,12 +64,15 @@ def list_assets(
 
 
 def update_asset(asset_id: UUID | str, payload: AssetUpdate) -> dict[str, Any] | None:
+    """Pydantic의 ``exclude_unset``을 이용해 요청에 포함된 필드만 동적으로 갱신한다."""
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return get_asset(asset_id)
     assignments = []
     values: list[Any] = []
     for name, value in changes.items():
+        # 컬럼명은 값 placeholder로 바인딩할 수 없으므로 psycopg.sql.Identifier로
+        # 안전하게 조립한다. DTO가 허용한 필드만 changes에 들어온다.
         assignments.append(sql.SQL("{}=%s").format(sql.Identifier(name)))
         values.append(Jsonb(value) if name == "metadata" else value)
     values.append(UUID(str(asset_id)))
@@ -71,6 +85,11 @@ def update_asset(asset_id: UUID | str, payload: AssetUpdate) -> dict[str, Any] |
 
 
 def soft_delete_asset(asset_id: UUID | str) -> bool:
+    """Asset을 soft delete하고 아직 끝나지 않은 ingestion job을 함께 취소한다.
+
+    두 UPDATE는 같은 connection context 안에서 실행되어 하나의 트랜잭션으로 commit된다.
+    이미 처리 완료된 청크와 버전은 감사·계보 보존을 위해 물리 삭제하지 않는다.
+    """
     with connect() as conn:
         row = conn.execute(
             """UPDATE assets SET deleted_at=now(), updated_at=now()
@@ -93,6 +112,11 @@ def create_version_and_job(
     effective_to: date | None, repository: str, branch: str, logical_path: str,
     max_attempts: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """새 Version과 ingestion job을 원자적으로 생성한다.
+
+    현재 버전으로 등록할 때 기존 현재 버전을 먼저 해제한다. DB의 partial unique index가
+    동시 요청에서도 Asset당 현재 버전이 하나뿐이라는 규칙을 최종 보장한다.
+    """
     version_id, job_id = uuid4(), uuid4()
     with connect() as conn:
         if not conn.execute(
@@ -124,6 +148,7 @@ def create_version_and_job(
 
 
 def list_versions(asset_id: UUID | str) -> list[dict[str, Any]]:
+    """Asset의 모든 버전을 최신 등록 순으로 조회한다."""
     with connect() as conn:
         return conn.execute(
             "SELECT * FROM asset_versions WHERE asset_id=%s ORDER BY created_at DESC",
@@ -132,6 +157,7 @@ def list_versions(asset_id: UUID | str) -> list[dict[str, Any]]:
 
 
 def create_relation(source_asset_id: UUID | str, payload: RelationCreate) -> dict[str, Any]:
+    """Asset 간 방향성 관계를 생성한다. 무결성 위반은 route가 409로 변환한다."""
     with connect() as conn:
         return conn.execute(
             """INSERT INTO asset_relations
@@ -142,6 +168,7 @@ def create_relation(source_asset_id: UUID | str, payload: RelationCreate) -> dic
 
 
 def list_relations(asset_id: UUID | str) -> list[dict[str, Any]]:
+    """source/target 양쪽 관점에서 Asset 관계를 반환한다."""
     with connect() as conn:
         return conn.execute(
             """SELECT * FROM asset_relations
@@ -151,6 +178,7 @@ def list_relations(asset_id: UUID | str) -> list[dict[str, Any]]:
 
 
 def delete_relation(source_asset_id: UUID | str, target_asset_id: UUID | str, relation_type: str) -> bool:
+    """정확히 일치하는 관계를 삭제하고 실제 삭제 여부를 반환한다."""
     with connect() as conn:
         row = conn.execute(
             """DELETE FROM asset_relations

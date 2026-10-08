@@ -32,7 +32,7 @@ class Item:
 
 
 def parse_pdf(path: Path, out: Path) -> tuple[list[Item], dict]:
-    """기존 보험약관용 Docling/표 pipeline 재사용. 표 셀/페이지 JSON 보존."""
+    """Docling으로 ECM PDF를 파싱하고 표 셀·페이지 좌표와 canonical JSON을 보존한다."""
     # PDF 이외 파일은 Docling의 무거운 torch/model dependency 없이 처리할 수 있다.
     from chunking.semantic_chunker import chunk_text_document
     from chunking.table_chunker import chunk_table

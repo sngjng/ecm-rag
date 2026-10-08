@@ -12,6 +12,12 @@ from service.config import get_settings
 
 
 def decrypt(input_path: Path, output_path: Path) -> Path:
+    """DRM 비활성화 시 원본, 활성화 시 Java adapter가 만든 평문 경로를 반환한다.
+
+    ``shell=True``를 사용하지 않아 파일명에 포함된 문자가 명령으로 해석되지 않는다.
+    adapter stdout/stderr는 사용자 응답에 노출하지 않으며 실패는 worker 재시도 정책으로
+    전달된다. 출력 파일 삭제 책임은 평문 사용 범위를 아는 worker에 있다.
+    """
     settings = get_settings().solutions.drm
     if not settings.enabled:
         return input_path
