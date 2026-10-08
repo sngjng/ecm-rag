@@ -1,4 +1,29 @@
-# 폐쇄망 통합 시험 체크리스트
+# PostgreSQL 서비스 통합 시험
+
+## 자동 통합 테스트
+
+`test_postgres_service.py`는 Python 3.11과 PostgreSQL 17 + pgvector 환경에서 다음
+핵심 흐름을 자동 검증합니다.
+
+- `/health/live`, `/health/ready`와 API key 인증
+- Asset 생성·목록·수정·soft delete
+- TXT 문서 업로드와 PostgreSQL queue 등록
+- worker claim, 파싱, deterministic embedding, pgvector 적재
+- FTS·pgvector 기반 검색 결과와 1024차원 벡터 저장
+
+테스트 DB에 `sql/001_pgvector.sql`을 적용한 뒤 다음과 같이 실행합니다.
+
+```bash
+export RAG_PROFILE=test
+export RAG_DB_DSN='postgresql://ragtest:비밀번호@127.0.0.1:55432/ragdb'
+.venv/bin/python -m pytest -q
+```
+
+`RAG_DB_DSN`이 없으면 PostgreSQL 통합 테스트만 skip되고 나머지 단위 테스트는
+계속 실행됩니다. 통합 테스트는 전용 테스트 DB의 `rag.assets` 및 종속 데이터를
+초기화하므로 운영 DB를 DSN으로 지정하면 안 됩니다.
+
+## 폐쇄망 운영 인수시험
 
 다음 검증은 Rocky Linux 9/Python 3.11/PostgreSQL 17/실제 모델 환경에서 수행합니다.
 

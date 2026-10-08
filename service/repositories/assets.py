@@ -45,8 +45,8 @@ def list_assets(
         return conn.execute(
             """SELECT * FROM assets
                WHERE deleted_at IS NULL
-                 AND (%s IS NULL OR asset_type=%s)
-                 AND (%s IS NULL OR system_name=%s)
+                 AND (%s::text IS NULL OR asset_type=%s)
+                 AND (%s::text IS NULL OR system_name=%s)
                ORDER BY created_at DESC LIMIT %s OFFSET %s""",
             (asset_type, asset_type, system_name, system_name, limit, offset),
         ).fetchall()

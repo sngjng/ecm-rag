@@ -33,10 +33,10 @@ def _filters(
     require_approved = retrieval.approved_versions_only and not include_obsolete
     statement = """
       AND a.deleted_at IS NULL
-      AND (%s IS NULL OR a.asset_type=%s)
-      AND (%s IS NULL OR a.system_name=%s)
-      AND (%s IS NULL OR a.vendor=%s)
-      AND (%s IS NULL OR a.product=%s)
+      AND (%s::text IS NULL OR a.asset_type=%s)
+      AND (%s::text IS NULL OR a.system_name=%s)
+      AND (%s::text IS NULL OR a.vendor=%s)
+      AND (%s::text IS NULL OR a.product=%s)
       AND (%s OR v.is_current)
       AND (%s OR v.lifecycle_status='approved')
     """
