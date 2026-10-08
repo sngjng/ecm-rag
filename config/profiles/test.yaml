@@ -1,0 +1,38 @@
+runtime:
+  os: test
+
+server:
+  docs_enabled: true
+  max_upload_mb: 5
+
+paths:
+  upload_root: artifacts/test/uploads
+  artifact_root: artifacts/test/processed
+
+models:
+  llm:
+    provider: stub
+    base_url: http://127.0.0.1:18000/v1
+    model: test-llm
+  embedding:
+    provider: deterministic_stub
+    base_url: http://127.0.0.1:18200/v1/embeddings
+    model: test-embedding
+  reranker:
+    enabled: false
+
+solutions:
+  ocr: disabled
+  drm:
+    enabled: false
+
+database:
+  vector:
+    hnsw_ef_search: 20
+
+worker:
+  poll_seconds: 0.1
+  lease_seconds: 30
+
+security:
+  api_key: test-api-key

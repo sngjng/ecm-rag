@@ -13,10 +13,15 @@ button{background:#0866ae;color:#fff;border:0;border-radius:8px;padding:13px 20p
 </style></head><body><div class="bar">보험약관AI · 지식자료 수집</div><main><div class="card"><h1>문서 업로드</h1>
 <p>파일은 서버의 지정된 업로드 디렉터리에 저장된 후, 별도 작업자가 문서 유형에 맞게 처리합니다.</p>
 <form id="upload"><label>API 키<input id="key" type="password" autocomplete="off" required placeholder="관리자에게 발급받은 키"></label>
-<div class="grid"><label>자료 유형<select name="content_type" id="type"><option value="document">운영/보험 문서</option><option value="incident">장애 이력</option><option value="error_trace">로그·스택트레이스</option><option value="source_code">소스코드</option></select></label>
+<div class="grid"><label>자산 유형<select name="asset_type" id="type"><option value="document">운영/보험 문서</option><option value="incident">장애 이력</option><option value="error_trace">로그·스택트레이스</option><option value="source_code">소스코드</option></select></label>
+<label>기존 Asset ID<input name="asset_id" placeholder="새 자산이면 비움, 새 버전이면 UUID"></label>
 <label>세부 유형<input name="subtype" value="general" placeholder="예: operation_manual"></label>
-<label>제목<input name="title" placeholder="비우면 파일명 사용"></label><label>시스템명<input name="system_name" placeholder="예: 계약계"></label>
-<label>버전<input name="version_label" placeholder="예: 2026.09"></label><label>저장소 / 리포지토리<input name="repository" placeholder="소스코드는 필수"></label>
+<label>제목<input name="title" placeholder="비우면 파일명 사용"></label><label>제조사<input name="vendor" placeholder="예: IBM"></label>
+<label>제품<input name="product" placeholder="예: WebSphere"></label><label>시스템명<input name="system_name" placeholder="예: 계약계"></label>
+<label>서비스명<input name="service_name"></label><label>컴포넌트<input name="component"></label>
+<label>소유 부서<input name="owner_org"></label><label>보안등급<input name="security_level" value="internal"></label>
+<label>버전<input name="version_label" value="1" placeholder="예: 2026.09"></label><label>상태<select name="lifecycle_status"><option value="approved">승인</option><option value="draft">초안</option><option value="obsolete">폐기</option></select></label>
+<label>현재 버전<select name="is_current"><option value="true">예</option><option value="false">아니오</option></select></label><label>저장소 / 리포지토리<input name="repository" placeholder="소스코드는 필수"></label>
 <label>브랜치<input name="branch" placeholder="예: release/2026.09"></label><label>저장소 내 상대 경로<input name="logical_path" placeholder="예: src/main/java/.../Payment.java"></label>
 <label>파일<input type="file" name="file" id="file" required accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml"><small>기본 최대 100 MB. 파일 유형에 따라 허용 확장자가 다릅니다.</small></label></div>
 <button id="submit" type="submit">업로드하고 처리 시작</button></form><div id="message" role="status" aria-live="polite">대기 중</div></div></main>
@@ -24,13 +29,13 @@ button{background:#0866ae;color:#fff;border:0;border-radius:8px;padding:13px 20p
 const form=document.querySelector('#upload'),message=document.querySelector('#message'),button=document.querySelector('#submit');
 form.addEventListener('submit',async e=>{e.preventDefault();button.disabled=true;message.textContent='업로드 중…';
 const key=document.querySelector('#key').value,body=new FormData(form);try{
-const response=await fetch('/api/uploads',{method:'POST',headers:{'X-API-Key':key},body});const result=await response.json();
+const response=await fetch('/api/v1/ingestion/uploads',{method:'POST',headers:{'X-API-Key':key},body});const result=await response.json();
 if(!response.ok)throw new Error(JSON.stringify(result.detail));
 message.textContent=`접수 완료: ${result.asset_id}\n현재 상태: ${result.status}`;
-const assetId=result.asset_id;
-for(let i=0;i<240;i++){await new Promise(resolve=>setTimeout(resolve,3000));const r=await fetch(`/api/uploads/${assetId}`,{headers:{'X-API-Key':key}});
+const jobId=result.job_id;
+for(let i=0;i<240;i++){await new Promise(resolve=>setTimeout(resolve,3000));const r=await fetch(`/api/v1/ingestion/jobs/${jobId}`,{headers:{'X-API-Key':key}});
 if(!r.ok)throw new Error('상태 조회 실패');const state=await r.json();
-message.textContent=`작업 ID: ${assetId}\n상태: ${state.status}\n인덱싱된 청크: ${state.chunk_count}`+(state.error_detail?`\n오류: ${state.error_detail}`:'');
+message.textContent=`Asset: ${result.asset_id}\nVersion: ${result.version_id}\n작업 ID: ${jobId}\n상태: ${state.status}\n시도: ${state.attempts}/${state.max_attempts}\n인덱싱된 청크: ${state.chunk_count}`+(state.error_detail?`\n오류: ${state.error_detail}`:'');
 if(state.status==='completed'||state.status==='failed')break;}
 }catch(error){message.textContent=`요청 실패: ${error.message}`;}finally{button.disabled=false;}});
 </script></body></html>

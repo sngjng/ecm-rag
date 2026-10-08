@@ -8,15 +8,16 @@ DRM_COMMAND가 비어 있으면 평문 파일을 그대로 사용한다. 설정�
 from __future__ import annotations
 import subprocess
 from pathlib import Path
-from service import config
+from service.config import get_settings
 
 
 def decrypt(input_path: Path, output_path: Path) -> Path:
-    if not config.DRM_COMMAND:
+    settings = get_settings().solutions.drm
+    if not settings.enabled:
         return input_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([config.DRM_COMMAND, str(input_path), str(output_path)],
-                   check=True, timeout=config.DRM_TIMEOUT, capture_output=True)
+    subprocess.run([settings.command, str(input_path), str(output_path)],
+                   check=True, timeout=settings.timeout_seconds, capture_output=True)
     if not output_path.is_file() or output_path.stat().st_size == 0:
         raise RuntimeError('DRM adapter가 성공 반환했지만 출력 파일이 비어 있습니다')
     return output_path

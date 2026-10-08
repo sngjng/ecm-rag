@@ -9,7 +9,6 @@ Docling이 인식한 레이아웃/표 구조를 가능한 한 손실 없이 JSON
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from loguru import logger
+from service.config import get_settings
 
 
 class DoclingParser:
@@ -34,14 +34,20 @@ class DoclingParser:
         """
         # 표 구조 추출을 반드시 켠다. 보험약관에서 표를 단순 텍스트로 처리하지 않는다.
         options = PdfPipelineOptions(do_table_structure=True)
+        options.do_ocr = get_settings().solutions.ocr != "disabled"
         # 오프라인 운영에서는 모델을 미리 반입하고 경로를 지정해야 네트워크 요청이 없다.
-        artifacts = os.environ.get("RAG_DOCLING_ARTIFACTS")
+        settings = get_settings().solutions.docling
+        artifacts = settings.artifacts_path
         if artifacts:
             options.artifacts_path = artifacts
 
         # 정확도 우선. 1,300+ 페이지라 처리시간은 늘지만 표 구조 품질이 더 중요하다.
-        options.table_structure_options.mode = TableFormerMode.ACCURATE
-        options.table_structure_options.do_cell_matching = do_cell_matching
+        options.table_structure_options.mode = (
+            TableFormerMode.ACCURATE if settings.table_mode == "accurate" else TableFormerMode.FAST
+        )
+        options.table_structure_options.do_cell_matching = (
+            do_cell_matching and settings.do_cell_matching
+        )
 
         # 향후 OCR/VLM fallback을 넣더라도 Docling을 1차 parser로 유지하도록 adapter화한다.
         self.converter = DocumentConverter(
@@ -54,6 +60,13 @@ class DoclingParser:
         `max_pages`는 개발 단계에서 1,363페이지 전체를 매번 돌리지 않고
         특정 앞부분만 빠르게 회귀 테스트하기 위한 옵션이다.
         """
+        payload, _ = self.parse_bundle(pdf_path, max_pages)
+        return payload
+
+    def parse_bundle(
+        self, pdf_path: str | Path, max_pages: int | None = None
+    ) -> tuple[dict[str, Any], str]:
+        """구조 보존 JSON과 사람이 검수할 Markdown 표현을 한 번의 변환으로 만든다."""
         pdf_path = Path(pdf_path)
         logger.info("Docling parse start: {}", pdf_path)
 
@@ -67,7 +80,7 @@ class DoclingParser:
         # Markdown이 아니라 구조 정보를 가진 dict를 저장한다.
         payload = document.export_to_dict()
         payload["_source_filename"] = pdf_path.name
-        return payload
+        return payload, document.export_to_markdown()
 
     @staticmethod
     def save_json(payload: dict[str, Any], output_path: str | Path) -> None:

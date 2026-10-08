@@ -1,16 +1,48 @@
 flowchart TB
-    U["운영자 업로드 HTML"] --> A["FastAPI 업로드·상태·검색"]
-    A --> F["격리 업로드 디렉터리"]
-    A --> P[("PostgreSQL 17 + pgvector")]
-    F --> W["Python 인덱싱 워커"]
-    W --> D["Java DRM adapter"]
-    D --> T["유형별 파서: 문서·로그·코드"]
-    T --> E["기존 BGE-M3 서비스"]
-    T --> P
-    E --> P
-    P --> H["정확 검색 + FTS + 벡터 검색"]
-    H --> R["RRF + 선택적 reranker"]
-    R --> A
-    C[("기존 ChromaDB")]
-    O["기존 OpenWebUI + Gemma"] --> C
-    O --> A
+    U["운영자 업로드 HTML"] --> API["FastAPI API 프로세스"]
+    OW["OpenWebUI + LLM"] --> API
+
+    subgraph ENDPOINTS["분리된 endpoint"]
+        CRUD["Asset / Version / Relation CRUD"]
+        INGEST["Upload / Job API"]
+        SEARCH["Hybrid Search API"]
+    end
+    API --> CRUD
+    API --> INGEST
+    API --> SEARCH
+
+    CRUD --> PG[("PostgreSQL 17\nRDB + FTS + pg_trgm + pgvector")]
+    INGEST --> FILES["격리 업로드 디렉터리"]
+    INGEST --> QUEUE["ingestion_jobs 영속 Queue"]
+    QUEUE --> PG
+
+    subgraph WORKER["독립 Worker 프로세스"]
+        CLAIM["Lease / Heartbeat / Retry"] --> DRM["Java DRM Adapter"]
+        DRM --> ROUTER["유형별 Parser Router"]
+        ROUTER --> DOC["Docling 문서 구조"]
+        ROUTER --> INCIDENT["장애 구조화"]
+        ROUTER --> TRACE["Error / Stack Frame"]
+        ROUTER --> CODE["AST Code Symbol"]
+        DOC --> CHUNK["Structure-aware Chunk"]
+        INCIDENT --> CHUNK
+        TRACE --> CHUNK
+        CODE --> CHUNK
+        CHUNK --> EMBED["Embedding API"]
+    end
+
+    FILES --> DRM
+    QUEUE --> CLAIM
+    EMBED --> PG
+    CHUNK --> PG
+
+    PG --> EXACT["Exact Identifier"]
+    PG --> FTS["Full Text Search"]
+    PG --> VECTOR["Vector Search"]
+    EXACT --> RRF["RRF Fusion"]
+    FTS --> RRF
+    VECTOR --> RRF
+    RRF --> RERANK["Optional Reranker"]
+    RERANK --> SEARCH
+
+    YAML["Base YAML + Environment Profile"] --> API
+    YAML --> WORKER

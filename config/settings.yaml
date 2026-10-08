@@ -1,47 +1,96 @@
-project:
-  name: insurance-rag
+# 공통 기본값. 환경 차이는 config/profiles/*.yaml에서 덮어쓴다.
+# 비밀번호/API 키는 YAML에 저장하지 않고 ${ENV_NAME} 표현식으로 주입한다.
+default_profile: local
+
+runtime:
+  environment: local
+  os: unknown
   python: "3.11"
 
-parsing:
-  table_mode: accurate
-  do_cell_matching: true
-  generate_page_images: false
-  max_pages: null
-  max_file_size_mb: 2048
+server:
+  host: 127.0.0.1
+  port: 8300
+  api_prefix: /api/v1
+  docs_enabled: false
+  max_upload_mb: 100
 
-normalization:
-  article_regex: "제\\s*\\d+(?:조의\\d+|조)(?:\\s*\\([^)]*\\))?"
-  special_clause_regex: "^\\s*\\d+(?:-\\d+)+\\s+.+특별약관"
-  table_merge:
-    enabled: true
-    min_header_similarity: 0.72
-    max_page_gap: 1
+paths:
+  upload_root: artifacts/uploads
+  artifact_root: artifacts/processed
+  web_root: web
 
-chunking:
-  text_target_tokens: 700
-  text_max_tokens: 1000
-  table_target_tokens: 900
-  table_max_rows: 30
-  context_overlap_rows: 1
-  expand_prev_next: 1
+database:
+  engine: postgresql
+  dsn: "${RAG_DB_DSN:-}"
+  connect_timeout_seconds: 10
+  schema_name: rag
+  vector:
+    provider: pgvector
+    distance_metric: cosine
+    hnsw_ef_search: 100
 
-embedding:
-  model: BAAI/bge-m3
-  use_fp16: true
-  batch_size: 8
-  max_length: 8192
+models:
+  llm:
+    provider: openai_compatible
+    base_url: "${RAG_LLM_URL:-http://127.0.0.1:8000/v1}"
+    api_key: "${RAG_LLM_API_KEY:-}"
+    model: "${RAG_LLM_MODEL:-gemma-4}"
+    timeout_seconds: 120
+  embedding:
+    provider: openai_compatible
+    base_url: "${RAG_EMBED_URL:-http://127.0.0.1:8200/v1/embeddings}"
+    api_key: "${RAG_EMBED_API_KEY:-}"
+    model: "${RAG_EMBED_MODEL:-bge-m3}"
+    dimension: 1024
+    batch_size: 8
+    max_input_characters: 24000
+    timeout_seconds: 120
+  reranker:
+    enabled: false
+    provider: local_flag_embedding
+    model_path: "${RAG_RERANK_MODEL_PATH:-}"
+    use_fp16: false
+    top_k: 10
 
-reranker:
-  model: BAAI/bge-reranker-v2-m3
-  use_fp16: true
-  top_k: 8
+solutions:
+  document_parser: docling
+  ocr: easyocr
+  docling:
+    artifacts_path: "${RAG_DOCLING_ARTIFACTS:-}"
+    require_local_artifacts: false
+    table_mode: accurate
+    do_cell_matching: true
+  drm:
+    enabled: false
+    command: "${RAG_DRM_COMMAND:-}"
+    timeout_seconds: 120
+
+ingestion:
+  default_lifecycle_status: approved
+  allowed_extensions:
+    document: [.pdf, .docx, .txt, .md]
+    incident: [.txt, .md]
+    error_trace: [.log, .txt]
+    source_code: [.py, .java, .sql, .js, .sh, .yml, .yaml]
+
+worker:
+  poll_seconds: 3
+  claim_batch_size: 5
+  lease_seconds: 900
+  max_attempts: 3
+  worker_name: "${RAG_WORKER_NAME:-}"
 
 retrieval:
-  dense_top_k: 30
-  lexical_top_k: 30
+  exact_top_k: 30
+  lexical_top_k: 40
+  vector_top_k: 40
   fusion_top_k: 30
   rrf_k: 60
+  default_limit: 10
+  max_limit: 30
+  current_versions_only: true
+  approved_versions_only: true
+  expand_neighbors: 1
 
-storage:
-  chroma_path: ./artifacts/chroma
-  collection: insurance_policy_chunks
+security:
+  api_key: "${RAG_API_KEY:-}"

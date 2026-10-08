@@ -1,0 +1,23 @@
+runtime:
+  os: rockylinux9
+
+server:
+  host: 0.0.0.0
+  docs_enabled: false
+
+paths:
+  upload_root: /srv/ecm-rag/uploads
+  artifact_root: /srv/ecm-rag/processed
+
+models:
+  reranker:
+    enabled: true
+    model_path: "${RAG_RERANK_MODEL_PATH}"
+    use_fp16: true
+
+solutions:
+  docling:
+    require_local_artifacts: true
+  drm:
+    enabled: true
+    command: "${RAG_DRM_COMMAND}"

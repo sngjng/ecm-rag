@@ -1,7 +1,7 @@
 """PDF -> Canonical JSON -> Chunk JSONL까지 수행하는 ingestion entry point.
 
 초기 v0.1.0에서는 가장 중요한 '파싱/정규화/청킹'을 한 명령으로 검증할 수 있게 한다.
-벡터 생성과 Chroma 저장은 build_index.py에서 분리해, 파싱 결과를 먼저 사람이 검수할
+벡터 생성과 PostgreSQL 적재는 build_index.py에서 분리해, 파싱 결과를 먼저 사람이 검수할
 수 있도록 설계했다.
 """
 
@@ -41,14 +41,16 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 1. Docling 1차 파싱
     # ------------------------------------------------------------------
-    raw = DoclingParser(
+    raw, markdown = DoclingParser(
         do_cell_matching=not args.no_cell_matching
-    ).parse(args.pdf, args.max_pages)
+    ).parse_bundle(args.pdf, args.max_pages)
 
     # Docling 원본 JSON을 반드시 남긴다.
     # 이후 canonical 변환이 잘못됐는지, Docling부터 잘못됐는지 구분하는 기준점이다.
     raw_path = args.out / "canonical" / f"{args.pdf.stem}.docling.json"
     DoclingParser.save_json(raw, raw_path)
+    markdown_path = args.out / "canonical" / f"{args.pdf.stem}.document.md"
+    markdown_path.write_text(markdown, encoding="utf-8")
 
     # ------------------------------------------------------------------
     # 2. 일반 텍스트/계층 구조 정규화

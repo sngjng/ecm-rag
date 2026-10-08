@@ -13,13 +13,10 @@ transformers>=4.55,<5
 # Install a CUDA/CPU build appropriate for the target server before this file when needed.
 torch>=2.6,<3
 
-# Vector / lexical retrieval
-chromadb==1.5.9
-rank-bm25==0.2.2
+# Vector / lexical retrieval is provided by PostgreSQL + pgvector + FTS.
 
 # Data / validation
 pydantic>=2.11,<3
-pydantic-settings>=2.10,<3
 numpy>=2.0,<3
 pandas>=2.2,<3
 
@@ -31,7 +28,6 @@ opencv-python-headless>=4.11,<5
 
 # Config / API / utilities
 PyYAML==6.0.2
-python-dotenv>=1.1,<2
 fastapi>=0.116,<1
 uvicorn>=0.35,<1
 loguru==0.7.3
@@ -41,7 +37,7 @@ tqdm==4.67.1
 pytest>=8.4,<9
 pytest-cov>=6,<7
 
-# PostgreSQL sidecar upload/search service (install manually in Python 3.11 venv)
+# PostgreSQL-only upload/search service (install manually in Python 3.11 venv)
 psycopg[binary]>=3.2,<4
 pgvector>=0.4,<1
 httpx>=0.27,<1

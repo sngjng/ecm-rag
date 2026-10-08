@@ -12,7 +12,7 @@ def reciprocal_rank_fusion(
     """Reciprocal Rank Fusion 점수로 여러 ranking을 합친다.
 
     검색 엔진별 raw score scale이 달라도 순위만으로 안정적으로 결합할 수 있어
-    dense + BM25 초기 hybrid 구성에 적합하다.
+    exact + PostgreSQL FTS + pgvector hybrid 구성에 적합하다.
     """
     scores: dict[str, float] = defaultdict(float)
 

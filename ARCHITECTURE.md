@@ -1,98 +1,48 @@
-# Architecture
+# 아키텍처
 
-## 1. 목표
+## 경계
 
-1,000페이지 이상 보험약관에서 본문·특별약관·별표·표·이미지를 구조적으로 보존한 뒤 검색 가능한 canonical representation을 만든다.
+서비스는 API, 처리 Worker, PostgreSQL, 외부 모델/DRM adapter의 네 경계로 나뉩니다.
+API는 대용량 파싱을 수행하지 않고 파일 저장과 DB 작업 등록까지만 담당합니다. Worker는
+독립 프로세스로 `ingestion_jobs`를 확보해 파싱부터 적재까지 수행합니다.
 
-## 2. 전체 흐름
-
-```text
-PDF
- ├─ Page profiling
- ├─ Docling accurate table parsing
- ├─ Canonical JSON
- │   ├─ text/article hierarchy
- │   └─ tables/cells/span/page provenance
- ├─ Table validation
- │   └─ low score → OCR / alternative parser 후보
- ├─ Normalization
- │   ├─ span expansion
- │   ├─ header paths
- │   ├─ inherited row context
- │   └─ deterministic row facts
- ├─ Chunking
- │   ├─ text: article-aware
- │   └─ table: Parent → child chunks
- ├─ BGE-M3
- ├─ Chroma
- ├─ lexical/RRF
- ├─ reranker
- └─ context expansion → LLM
-```
-
-## 3. 보험약관 특화 계층
-
-가능한 경우 다음 구조를 보존한다.
+## 데이터 모델
 
 ```text
-상품
- → 보통약관 / 특별약관 / 별표
- → 특약
- → 관 / 절
- → 조
- → 항 / 호
- → 표 / 각주
+Asset
+ ├─ Asset Version
+ │   ├─ Ingestion Job
+ │   ├─ Chunk ─ Embedding
+ │   ├─ Error Event ─ Stack Frame
+ │   └─ Code Symbol
+ └─ Asset Relation ─ Asset
 ```
 
-페이지 경계는 의미 경계로 사용하지 않는다.
+- Asset: 문서·장애·로그·코드의 논리적 정체성과 ECM metadata
+- Asset Version: 원본 파일, checksum, lifecycle, 현재 버전, parser lineage
+- Chunk: `display_content`와 metadata를 포함한 `embedding_content`를 분리
+- Relation: 문서·장애·코드 사이의 references/resolved_by/applies_to 관계
 
-## 4. 복잡표 처리 원칙
+## Worker 복구
 
-### 4.1 Markdown 금지
+작업 확보는 `FOR UPDATE SKIP LOCKED`로 이루어집니다. 처리 중 worker는 heartbeat를
+갱신하며, lease가 만료된 작업은 다른 worker가 재획득합니다. YAML의 `max_attempts`를
+소진하면 작업은 `failed`로 종료되고 API를 통해 명시적으로 재시도할 수 있습니다.
 
-병합 구조를 잃기 때문에 Markdown은 canonical source가 아니다.
+## 검색
 
-### 4.2 span expansion
+1. 에러코드·예외·파일·심볼 식별자를 exact/substring으로 검색
+2. PostgreSQL `simple` FTS로 lexical 후보 검색
+3. 같은 embedding 모델로 질문을 벡터화해 cosine 후보 검색
+4. 세 레인을 RRF로 결합
+5. 선택적으로 BGE reranker 적용
+6. 결과 청크의 앞뒤 문맥을 함께 반환
 
-`rowspan`, `colspan`에 의해 한 번만 기록된 상위 셀을 dense grid로 확장한다. 청크가 표 중간에서 분리되어도 상위 조건이 남는다.
+기본 검색은 `is_current=true`, `lifecycle_status=approved`를 적용하며 과거 분석 요청에서만
+`include_obsolete=true`로 완화합니다.
 
-### 4.3 table child chunk
+## 설정
 
-각 child는 반드시 다음을 가진다.
-
-- `parent_id/table_id`
-- 원래 표의 source page
-- hierarchical header
-- 상속된 row header
-- 관련 footnote
-- previous/next chunk id
-
-### 4.4 retrieval representation
-
-canonical JSON과 embedding text를 분리한다.
-
-예:
-
-```text
-[표] 암진단비 지급기준
-[문맥] 2-4 암진단Ⅱ 특별약관 > 제3조 보험금의 지급사유
-구분 = 일반암; 지급사유 = 최초 진단; 지급금액 = 가입금액 100%
-```
-
-## 5. 페이지를 넘어가는 표
-
-`table_linker.py`는 현재 header similarity + column count + page continuity를 제공한다. 실제 대상 PDF 평가 후 caption/layout/bbox 기반 점수를 추가한다.
-
-## 6. 실패 처리
-
-완전 자동화보다 **검증 가능성**을 우선한다.
-
-- score >= 0.90: 일반 처리
-- 0.80~0.90: 경고 기록
-- < 0.80: OCR/alternative parser 재처리 후보
-
-임계값은 실제 gold set 평가 후 조정한다.
-
-## 7. 폐쇄망
-
-BGE-M3/reranker/Docling 모델은 인터넷이 가능한 환경에서 사전 다운로드하고 내부 모델 경로를 넘길 수 있도록 설계한다.
+코드에는 환경별 경로·포트·모델명을 두지 않습니다. `config/settings.yaml`을 기본으로
+`config/profiles/{RAG_PROFILE}.yaml`을 deep-merge한 뒤 환경 변수 표현식을 치환합니다.
+DSN과 API 키처럼 민감한 값만 환경 변수로 주입합니다.

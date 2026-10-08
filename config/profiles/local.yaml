@@ -1,0 +1,10 @@
+runtime:
+  os: windows
+
+server:
+  host: 127.0.0.1
+  docs_enabled: true
+
+solutions:
+  drm:
+    enabled: false

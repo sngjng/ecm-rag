@@ -8,9 +8,8 @@ from FlagEmbedding import BGEM3FlagModel
 class BgeM3Embedder:
     """FlagEmbedding의 BGEM3FlagModel을 프로젝트 인터페이스로 감싼다.
 
-    BGE-M3는 dense/sparse/multi-vector를 모두 지원하지만 v0.1.0에서는
-    Chroma dense 검색부터 검증하기 위해 dense vector만 반환한다.
-    향후 lexical/RRF 또는 BGE-M3 sparse를 함께 사용하는 hybrid 구조로 확장 가능하다.
+    PostgreSQL pgvector에는 dense vector를 저장하고 exact/FTS 검색 결과와 RRF로
+    결합한다. sparse/multi-vector는 별도 backend가 필요할 때 adapter로 확장한다.
     """
 
     def __init__(self, model_name_or_path: str, use_fp16: bool = True) -> None:
