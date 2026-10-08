@@ -1,11 +1,36 @@
-# ECM RAG PostgreSQL Service
+# ECM 문서 자산화 플랫폼
 
-Python 3.11 기반의 폐쇄망 문서 자산화·검색 서비스입니다. PostgreSQL 17의 관계형
-데이터, Full Text Search, `pg_trgm`, `pgvector`를 하나의 원장으로 사용합니다.
+Python 3.11 기반의 폐쇄망 ECM(Enterprise Content Management) 문서 자산화
+플랫폼입니다. 조직에서 생성·수집되는 비정형 문서를 표준화된 자산으로 등록하고,
+원본과 변환 산출물, 메타데이터, 처리 이력 및 검색 인덱스를 일관되게 관리하는 것이
+이 프로젝트의 목적입니다.
+
+RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이 아니라, 자산화된 ECM
+문서를 정확하게 탐색하고 향후 사내 LLM·OpenWebUI 등에서 재사용할 수 있도록 하는
+검색 기술 계층입니다. PostgreSQL 17의 관계형 데이터, Full Text Search, `pg_trgm`,
+`pgvector`를 하나의 문서 자산 원장으로 사용합니다.
+
+## 프로젝트 목표
+
+- 사내 문서와 기술 자료를 단일 업로드 경로로 접수하고 자산 식별자를 부여
+- 원본 문서, DRM 처리 결과, canonical artifact와 검색 청크의 계보(lineage) 보존
+- 문서 유형별 파싱·정규화·청킹을 통한 재사용 가능한 표준 데이터 생성
+- 문서 메타데이터, 버전, 처리 상태, 오류 및 재처리 이력을 PostgreSQL에서 관리
+- 키워드·식별자·벡터 기반 통합 검색으로 ECM 문서의 발견성과 활용성 향상
+- API와 worker를 분리하여 접수 서비스와 대용량 문서 처리 프로세스를 독립 운영
+- 환경별 차이를 YAML profile로 분리하여 폐쇄망 운영환경의 변경 비용 최소화
+
+## 프로젝트 범위
+
+이 프로젝트는 특정 보험상품이나 보험약관을 대상으로 답변을 생성하는 서비스가
+아닙니다. ECM 문서의 수집, 변환, 구조화, 보존, 추적, 검색 및 외부 서비스 연계를 위한
+공통 기반을 구축합니다. 생성형 답변, 업무별 프롬프트와 사용자 화면은 이 플랫폼의
+검색 API를 사용하는 별도 응용 계층에서 구성할 수 있습니다.
 
 ## 처리 대상
 
-- 운영 매뉴얼·제조사 가이드·보험약관: Docling JSON을 canonical artifact로 보존
+- 사내 규정·지침·보고서·계약서·업무 문서: 원본과 Docling JSON을 자산으로 보존
+- 운영 매뉴얼·제조사 가이드·기술 문서: 문서 구조와 표·문단 정보를 정규화
 - 장애 이력: 증상·원인·조치·결과를 구조화하고 의미 검색용 문장을 별도 생성
 - 에러 로그·스택 트레이스: 에러코드 exact 검색과 frame 위치 검색
 - Python/Java/SQL/JavaScript/Shell/YAML: AST 또는 파일 단위 코드 검색
@@ -19,7 +44,7 @@ Python 3.11 기반의 폐쇄망 문서 자산화·검색 서비스입니다. Pos
 FastAPI
   ├─ /api/v1/assets       Asset CRUD
   ├─ /api/v1/ingestion    파일/작업 접수
-  └─ /api/v1/search       hybrid retrieval
+  └─ /api/v1/search       ECM 자산 통합 검색
         │
         ▼
 PostgreSQL queue ◀──── 별도 Python worker
@@ -99,13 +124,14 @@ curl http://127.0.0.1:8300/health/ready
 ```bash
 curl -H 'X-API-Key: 내부-서비스-키' \
   -H 'Content-Type: application/json' \
-  -d '{"query":"SRVE0255E 과거 장애와 관련 코드","limit":5}' \
+  -d '{"query":"전자결재 연계 운영지침과 관련 장애 이력","limit":5}' \
   http://127.0.0.1:8300/api/v1/search
 ```
 
 검색은 식별자 exact/substring, PostgreSQL FTS, pgvector cosine 후보를 RRF로 합친 뒤
 YAML에서 활성화한 경우에만 로컬 reranker를 적용합니다. 최신·승인 버전 우선 정책도
-YAML로 조정할 수 있습니다.
+YAML로 조정할 수 있습니다. 검색 결과는 ECM 자산과 해당 청크의 근거 정보를 반환하며,
+답변 생성이 필요한 응용 서비스는 이 결과를 별도의 LLM 컨텍스트로 사용할 수 있습니다.
 
 ## DRM 계약
 
