@@ -5,7 +5,7 @@
 `test_postgres_service.py`는 Python 3.11과 PostgreSQL 17 + pgvector 환경에서 다음
 핵심 흐름을 자동 검증합니다.
 
-- `/health/live`, `/health/ready`와 API key 인증
+- `/health/live`, `/health/ready`와 로그인 세션 인증
 - Asset 생성·목록·수정·soft delete
 - TXT 문서 업로드와 PostgreSQL queue 등록
 - worker claim, 파싱, deterministic embedding, pgvector 적재
@@ -36,6 +36,6 @@ export RAG_DB_DSN='postgresql://ragtest:비밀번호@127.0.0.1:55432/ragdb'
 7. exact error code, FTS, vector, metadata filter, reranker 결과 검증
 8. 최신 승인 버전 기본 필터와 `include_obsolete=true` 검증
 9. OpenWebUI에서 파일명·버전·페이지/라인 인용 표시
-10. 100 MB 파일 제한, 경로 traversal, API key, TLS proxy 검증
+10. 100 MB 파일 제한, 경로 traversal, 세션 만료·로그아웃, TLS proxy 검증
 11. 복호화 임시파일 삭제와 canonical/DB 평문 접근권한 확인
 12. 백업·복구 후 vector index와 검색 결과 일치 확인

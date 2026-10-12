@@ -35,4 +35,6 @@ worker:
   lease_seconds: 30
 
 security:
-  api_key: test-api-key
+  authentication:
+    provider: development_stub
+    cookie_secure: false

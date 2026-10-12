@@ -5,6 +5,12 @@ server:
   host: 127.0.0.1
   docs_enabled: true
 
+security:
+  authentication:
+    # 로컬 UI 확인용 test/test 계정. 운영 rockylinux9 profile에는 적용되지 않는다.
+    provider: development_stub
+    cookie_secure: false
+
 solutions:
   drm:
     enabled: false

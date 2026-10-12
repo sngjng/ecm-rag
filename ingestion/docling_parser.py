@@ -9,14 +9,22 @@ Docling이 인식한 레이아웃/표 구조를 가능한 한 손실 없이 JSON
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+from docling.datamodel.pipeline_options import (
+    EasyOcrOptions,
+    PdfPipelineOptions,
+    RapidOcrOptions,
+    TableFormerMode,
+)
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from loguru import logger
 from service.config import get_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class DoclingParser:
@@ -34,9 +42,19 @@ class DoclingParser:
         """
         # 표 구조 추출을 반드시 켠다. 보험약관에서 표를 단순 텍스트로 처리하지 않는다.
         options = PdfPipelineOptions(do_table_structure=True)
-        options.do_ocr = get_settings().solutions.ocr != "disabled"
+        solution_settings = get_settings().solutions
+        options.do_ocr = solution_settings.ocr != "disabled"
+        # do_ocr만 켜면 Docling의 auto OCR가 설치된 엔진 중 RapidOCR를 우선 선택할 수
+        # 있다. YAML의 선택이 실제 실행 엔진과 일치하도록 엔진 옵션을 명시한다.
+        if solution_settings.ocr == "easyocr":
+            options.ocr_options = EasyOcrOptions(
+                lang=solution_settings.easyocr_languages
+            )
+        elif solution_settings.ocr == "rapidocr":
+            options.ocr_options = RapidOcrOptions()
+        logger.info("Docling OCR engine configured: %s", solution_settings.ocr)
         # 오프라인 운영에서는 모델을 미리 반입하고 경로를 지정해야 네트워크 요청이 없다.
-        settings = get_settings().solutions.docling
+        settings = solution_settings.docling
         artifacts = settings.artifacts_path
         if artifacts:
             options.artifacts_path = artifacts
@@ -68,7 +86,7 @@ class DoclingParser:
     ) -> tuple[dict[str, Any], str]:
         """구조 보존 JSON과 사람이 검수할 Markdown 표현을 한 번의 변환으로 만든다."""
         pdf_path = Path(pdf_path)
-        logger.info("Docling parse start: {}", pdf_path)
+        logger.info("Docling parse start: %s", pdf_path)
 
         kwargs: dict[str, Any] = {}
         if max_pages:

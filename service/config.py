@@ -124,6 +124,9 @@ class DrmSettings(SettingsModel):
 class SolutionSettings(SettingsModel):
     document_parser: Literal["docling"] = "docling"
     ocr: Literal["easyocr", "rapidocr", "disabled"] = "easyocr"
+    easyocr_languages: list[str] = Field(
+        default_factory=lambda: ["ko", "en"], min_length=1
+    )
     docling: DoclingSettings = Field(default_factory=DoclingSettings)
     drm: DrmSettings = Field(default_factory=DrmSettings)
 
@@ -136,9 +139,24 @@ class WorkerSettings(SettingsModel):
     worker_name: str = ""
 
 
+class DuplicateDetectionSettings(SettingsModel):
+    """기존 문서 후보 판별 정책.
+
+    판별 결과는 자동 병합에 사용하지 않고 사용자 확인 후보로만 제공한다. 환경별 문서
+    명명 품질에 맞춰 YAML에서 임계값과 후보 수를 조정할 수 있다.
+    """
+
+    enabled: bool = True
+    title_similarity_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
+    max_candidates: int = Field(default=5, ge=1, le=20)
+
+
 class IngestionSettings(SettingsModel):
     default_lifecycle_status: Literal["draft", "approved"] = "approved"
     allowed_extensions: dict[str, list[str]] = Field(default_factory=dict)
+    duplicate_detection: DuplicateDetectionSettings = Field(
+        default_factory=DuplicateDetectionSettings
+    )
 
 
 class RetrievalSettings(SettingsModel):
@@ -154,8 +172,18 @@ class RetrievalSettings(SettingsModel):
     expand_neighbors: int = Field(default=1, ge=0, le=1)
 
 
+class AuthenticationSettings(SettingsModel):
+    provider: Literal["java_command", "development_stub"] = "java_command"
+    java_command: str = ""
+    timeout_seconds: int = Field(default=15, ge=1, le=120)
+    session_hours: int = Field(default=8, ge=1, le=168)
+    cookie_name: str = "ecm_rag_session"
+    cookie_secure: bool = True
+    cookie_samesite: Literal["strict", "lax"] = "strict"
+
+
 class SecuritySettings(SettingsModel):
-    api_key: str = ""
+    authentication: AuthenticationSettings = Field(default_factory=AuthenticationSettings)
 
 
 class AppSettings(SettingsModel):

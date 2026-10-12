@@ -1,5 +1,5 @@
 # 공통 기본값. 환경 차이는 config/profiles/*.yaml에서 덮어쓴다.
-# 비밀번호/API 키는 YAML에 저장하지 않고 ${ENV_NAME} 표현식으로 주입한다.
+# 비밀번호, 외부 모델 API 키, Java wrapper 경로는 ${ENV_NAME} 표현식으로 주입한다.
 default_profile: local
 
 runtime:
@@ -55,6 +55,8 @@ models:
 solutions:
   document_parser: docling
   ocr: easyocr
+  # EasyOCR를 명시적으로 선택하고 한글/영문 인식 모델을 사용한다.
+  easyocr_languages: [ko, en]
   docling:
     artifacts_path: "${RAG_DOCLING_ARTIFACTS:-}"
     require_local_artifacts: false
@@ -67,6 +69,11 @@ solutions:
 
 ingestion:
   default_lifecycle_status: approved
+  # 기존 문서 후보가 발견되어도 자동 병합하지 않고 업로드 사용자에게 확인받는다.
+  duplicate_detection:
+    enabled: true
+    title_similarity_threshold: 0.72
+    max_candidates: 5
   allowed_extensions:
     document: [.pdf, .docx, .txt, .md]
     incident: [.txt, .md]
@@ -93,4 +100,12 @@ retrieval:
   expand_neighbors: 1
 
 security:
-  api_key: "${RAG_API_KEY:-}"
+  authentication:
+    # Java 모듈 wrapper는 stdin JSON을 인증하고 stdout으로 사원정보 JSON을 반환한다.
+    provider: java_command
+    java_command: "${RAG_AUTH_COMMAND:-}"
+    timeout_seconds: 15
+    session_hours: 8
+    cookie_name: ecm_rag_session
+    cookie_secure: true
+    cookie_samesite: strict

@@ -34,11 +34,26 @@ sequenceDiagram
     participant Parser as 유형별 Parser
     participant Embed as BGE-M3 / Test Stub
 
+    User->>UI: 사번·비밀번호 로그인
+    UI->>API: POST /api/v1/auth/login
+    API->>API: Java 사내 인증 모듈 호출
+    API->>DB: 사원정보 snapshot과 서버 세션 저장
+    API-->>UI: HttpOnly 세션 쿠키
     User->>UI: 파일·메타데이터 입력 후 처리 시작
     UI->>API: POST /api/v1/ingestion/uploads
-    API->>API: API key, 확장자, 크기, 경로 검증
+    API->>API: 로그인 세션, 확장자, 크기, 경로 검증
     API->>API: 업로드 디렉터리에 원본 저장·SHA-256 계산
-    API->>DB: Asset/Version/Job 트랜잭션 등록
+    API->>DB: 해시·파일명·제목으로 기존 Asset 후보 조회
+    alt 기존 문서 후보 있음
+        DB-->>API: 후보 Asset 목록
+        API-->>UI: 409 confirmation_required
+        UI-->>User: 기존 문서 후보와 판별 근거 표시
+        User->>UI: 새 버전 또는 별도 신규 문서 선택
+        UI->>API: 선택 결과와 파일 재전송
+    else 후보 없음
+        DB-->>API: 후보 없음
+    end
+    API->>DB: 확정된 Asset/Version/Job 트랜잭션 등록
     DB-->>API: queued job_id 반환
     API-->>UI: 202 Accepted
 
@@ -67,27 +82,29 @@ Mermaid 원문은 Markdown 안에서 직접 수정할 수 있습니다.
 
 ## 3. 화면 영역별 코드와 API
 
-### 3.1 API 키
+### 3.1 사내 로그인과 세션
 
-| 화면 항목 | 전송 위치 | 서버 처리 | 실패 결과 |
-|---|---|---|---|
-| API 키 | HTTP `X-API-Key` header | `service.dependencies.authorize()` | 누락/불일치 `401`, 서버 키 미설정 `503` |
+로그인 화면은 사번과 비밀번호를 Java 인증 wrapper에 전달합니다. 인증 성공 시 반환된
+사번·성명·부서·이메일·역할을 PostgreSQL 세션에 snapshot으로 저장하고 브라우저에는
+무작위 HttpOnly 쿠키만 발급합니다. 비밀번호와 원문 세션 토큰은 DB에 저장하지 않습니다.
 
-API 키는 multipart FormData에 넣지 않습니다. 브라우저 JavaScript가 header로 분리해
-전송합니다. 비교는 `hmac.compare_digest()`를 사용합니다.
+모든 보호 API는 `service.dependencies.authorize()`에서 세션 만료·폐기 여부를 확인합니다.
+업로드 완료 시 `upload_audit`에 사원정보, 신규/버전등록 구분, 접속 IP와 User-Agent를
+Version/Job과 같은 트랜잭션으로 기록합니다.
 
 ### 3.2 자산 식별·분류 영역
 
 | 화면 필드 | API 필드 | 저장 위치 | 의미 |
 |---|---|---|---|
 | 자산 유형 | `asset_type` | `rag.assets.asset_type` | document, incident, error_trace, source_code |
-| 기존 Asset ID | `asset_id` | 기존 `rag.assets.asset_id` 참조 | 비우면 신규 자산, 입력하면 새 버전 |
 | 세부 유형 | `subtype` | `rag.assets.subtype` | 업무별 자유 분류 코드 |
 | 제목 | `title` | `rag.assets.title` | 비우면 업로드 파일명 사용 |
 | 보안등급 | `security_level` | `rag.assets.security_level` | 접근통제 연계를 위한 분류 |
 
-신규 자산은 `assets.create_asset()`을 호출합니다. 기존 Asset ID를 입력하면 Asset 존재와
-유형 일치를 확인한 뒤 Version만 추가합니다.
+Asset ID는 화면 입력 항목이 아닙니다. 서버가 동일 파일 SHA-256, 파일명, 제목 일치와
+`pg_trgm` 제목 유사도를 비교해 기존 문서 후보를 반환합니다. 사용자가 후보를 선택하면
+화면이 `confirmed_asset_id`를 내부적으로 전송하고 Version만 추가합니다. 별도 신규 문서를
+선택하거나 후보가 없으면 `assets.create_asset()`이 새 UUID를 생성합니다.
 
 ### 3.3 업무 메타데이터 영역
 
@@ -132,9 +149,33 @@ partial unique index가 동시 요청에서도 현재 버전 하나만 허용합
 
 ```http
 POST /api/v1/ingestion/uploads
-X-API-Key: {api-key}
+Cookie: ecm_rag_session={HttpOnly session}
 Content-Type: multipart/form-data
 ```
+
+기존 문서 후보가 발견되면 아직 Asset/Version/Job을 만들지 않고 다음 응답을 반환합니다.
+
+```json
+{
+  "status": "confirmation_required",
+  "code": "duplicate_confirmation_required",
+  "message": "기존 문서 후보가 발견되었습니다. 등록 방식을 확인해 주세요.",
+  "candidates": [
+    {
+      "asset_id": "UUID",
+      "title": "전자결재 운영지침",
+      "current_version_label": "1.0",
+      "source_filename": "approval-guide.pdf",
+      "exact_content": false,
+      "match_reasons": ["동일한 제목", "동일한 파일명"]
+    }
+  ]
+}
+```
+
+사용자가 결정하면 동일 파일을 `duplicate_action=new_version`과 내부
+`confirmed_asset_id` 또는 `duplicate_action=new_asset`으로 다시 전송합니다. 동일한
+파일 내용이 이미 등록된 후보에는 중복 Version을 만들 수 없습니다.
 
 정상 응답은 처리 완료가 아니라 접수 완료입니다.
 
@@ -152,7 +193,7 @@ Content-Type: multipart/form-data
 
 ```http
 GET /api/v1/ingestion/jobs/{job_id}
-X-API-Key: {api-key}
+Cookie: ecm_rag_session={HttpOnly session}
 ```
 
 최대 240회, 약 12분간 조회하며 `completed` 또는 `failed`이면 polling을 종료합니다.
@@ -187,7 +228,7 @@ stateDiagram-v2
 
 ```http
 POST /api/v1/ingestion/jobs/{job_id}/retry
-X-API-Key: {api-key}
+Cookie: ecm_rag_session={HttpOnly session}
 ```
 
 ## 5. Asset 관리 API
@@ -203,6 +244,7 @@ X-API-Key: {api-key}
 | PATCH | `/api/v1/assets/{asset_id}` | 전달한 필드만 수정 | `200` |
 | DELETE | `/api/v1/assets/{asset_id}` | soft delete 및 진행 작업 취소 | `204` |
 | GET | `/api/v1/assets/{asset_id}/versions` | 버전 이력 조회 | 내부 `source_path` 제외 |
+| GET | `/api/v1/assets/{asset_id}/upload-history` | 사원별 문서 접수 감사 이력 | 사번·성명·부서·등록 구분 |
 | POST | `/api/v1/assets/{asset_id}/relations` | Asset 관계 생성 | `201`, 충돌 `409` |
 | GET | `/api/v1/assets/{asset_id}/relations` | 연관 자산 조회 | `200` |
 | DELETE | `/api/v1/assets/{asset_id}/relations/{target_id}/{type}` | 관계 삭제 | `204` |
@@ -217,7 +259,7 @@ X-API-Key: {api-key}
 
 ```http
 POST /api/v1/search
-X-API-Key: {api-key}
+Cookie: ecm_rag_session={HttpOnly session}
 Content-Type: application/json
 
 {
@@ -268,12 +310,13 @@ flowchart LR
 
 | 상황 | HTTP/상태 | 화면/운영자 조치 |
 |---|---|---|
-| API key 누락·오류 | `401` | 발급 키 확인 |
-| 서버 API key 미설정 | `503` | `RAG_API_KEY`/YAML 확인 |
+| 세션 누락·만료 | `401` | 로그인 화면으로 이동해 재인증 |
+| Java 인증 모듈 미설정·호출 실패 | `503` | `RAG_AUTH_COMMAND`와 wrapper 상태 확인 |
 | 허용하지 않은 유형·확장자 | `422` | Asset 유형과 파일 확장자 확인 |
 | 빈 파일 | `422` | 원본 파일 확인 |
 | 용량 초과 | `413` | profile의 `max_upload_mb`와 파일 크기 확인 |
-| 기존 Asset 유형 불일치 | `409` | 올바른 Asset ID 사용 또는 신규 등록 |
+| 기존 문서 후보 발견 | `409` + `duplicate_confirmation_required` | 새 버전 또는 별도 신규 문서 선택 |
+| 확인 대상 Asset 불일치 | `409` | 후보를 다시 조회한 뒤 선택 |
 | 동일 원본 SHA-256 중복 | `409` | 기존 버전 확인 |
 | DB 준비 안 됨 | `/health/ready` `503` | PostgreSQL/DSN/스키마 확인 |
 | worker 처리 오류 | job `queued` 또는 `failed` | `error_detail`, attempts 확인 |
@@ -283,7 +326,10 @@ flowchart LR
 ### 화면 변경
 
 - HTML `name`과 `ingestion.upload()` Form 파라미터가 동일한가?
-- API key가 body나 URL에 포함되지 않고 header로 전달되는가?
+- 로그인 비밀번호와 원문 세션 토큰이 DB·로그·응답에 남지 않는가?
+- 보호 API가 HttpOnly 세션을 검증하고 만료 시 로그인 화면으로 이동하는가?
+- Asset ID를 사용자에게 직접 입력시키지 않고 후보 선택값으로만 전송하는가?
+- 기존 문서 후보가 자동 병합되지 않고 사용자 확인 단계를 거치는가?
 - 새 terminal 상태가 추가되면 polling 종료 조건도 변경했는가?
 - 브라우저 검증만 믿지 않고 서버 검증도 존재하는가?
 

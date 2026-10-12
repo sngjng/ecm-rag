@@ -85,12 +85,12 @@ psql -d ragdb -f artifacts/sql/001_pgvector.rendered.sql
 
 ## 환경 설정
 
-일반 설정은 YAML에서, 비밀번호와 API 키는 환경 변수에서 관리합니다.
+일반 설정은 YAML에서, DB 비밀번호와 Java 인증 wrapper 경로 등 서버별 값은 환경 변수에서 관리합니다.
 
 ```bash
 export RAG_PROFILE=rockylinux9
 export RAG_DB_DSN='postgresql://raguser:비밀번호@127.0.0.1:5432/ragdb'
-export RAG_API_KEY='내부-서비스-키'
+export RAG_AUTH_COMMAND='/srv/ecm-rag/bin/company-auth-wrapper'
 export RAG_RERANK_MODEL_PATH='/srv/models/bge-reranker-v2-m3'
 export RAG_DOCLING_ARTIFACTS='/srv/models/docling'
 export RAG_DRM_COMMAND='/srv/drm/bin/decrypt-wrapper'
@@ -103,6 +103,28 @@ export RAG_DRM_COMMAND='/srv/drm/bin/decrypt-wrapper'
 - 별도 설정 파일: `RAG_CONFIG_FILE=/etc/ecm-rag/settings.yaml`
 
 ## 프로세스별 실행
+
+### sngjng 계정 일괄 실행
+
+API와 Worker는 sudo 없이 전용 스크립트로 함께 시작·종료할 수 있습니다. 스크립트는
+자신의 위치를 기준으로 프로젝트 루트를 계산하므로 실행 디렉터리와 무관합니다.
+
+```bash
+cd /mnt/c/Users/HDS/Documents/ChatGPT/ecm-rag
+chmod 750 bin/start.sh bin/stop.sh
+
+bin/start.sh
+bin/stop.sh
+```
+
+- 기본 실행 계정: `sngjng`
+- PID: `artifacts/run/`
+- 로그: `artifacts/logs/api.log`, `artifacts/logs/worker.log`
+- 선택 환경변수: `ECM_RAG_HOST`, `ECM_RAG_PORT`, `ECM_RAG_PYTHON`, `ECM_RAG_STOP_TIMEOUT`
+- `.env`가 있으면 시작 시 자동으로 읽습니다.
+- 시작 전에 `sql/002_session_auth_audit.sql`을 idempotent하게 자동 적용합니다.
+
+### 개별 실행
 
 ```bash
 # API: 파일 저장과 PostgreSQL 작업 등록까지만 수행
@@ -119,12 +141,17 @@ curl http://127.0.0.1:8300/health/live
 curl http://127.0.0.1:8300/health/ready
 ```
 
-업로드 화면은 `http://서버:8300/`에서 사용합니다.
+로그인 화면은 `http://서버:8300/login`, 업로드 화면은 로그인 후
+`http://서버:8300/`에서 사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`을
+추가 적용해야 합니다.
+
+로컬·테스트 profile의 화면 확인 계정은 `test / test`입니다. 운영
+`rockylinux9` profile에서는 이 계정이 비활성화되고 Java 사내 인증만 사용합니다.
 
 ## 검색
 
 ```bash
-curl -H 'X-API-Key: 내부-서비스-키' \
+curl -b session.cookie \
   -H 'Content-Type: application/json' \
   -d '{"query":"전자결재 연계 운영지침과 관련 장애 이력","limit":5}' \
   http://127.0.0.1:8300/api/v1/search
@@ -134,6 +161,13 @@ curl -H 'X-API-Key: 내부-서비스-키' \
 YAML에서 활성화한 경우에만 로컬 reranker를 적용합니다. 최신·승인 버전 우선 정책도
 YAML로 조정할 수 있습니다. 검색 결과는 ECM 자산과 해당 청크의 근거 정보를 반환하며,
 답변 생성이 필요한 응용 서비스는 이 결과를 별도의 LLM 컨텍스트로 사용할 수 있습니다.
+
+## 사내 Java 로그인 계약
+
+`RAG_AUTH_COMMAND`는 사내 로그인 Java 라이브러리를 호출하는 wrapper 실행 파일입니다.
+FastAPI가 stdin으로 사번·비밀번호 JSON을 전달하면 wrapper는 인증 성공 여부와 사번·성명·
+부서·이메일·역할 JSON을 stdout으로 반환합니다. 상세 계약은
+`JAVA_AUTH_INTEGRATION.md`를 참고하세요.
 
 ## DRM 계약
 

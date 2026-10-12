@@ -34,7 +34,7 @@
 
 ## 운영 전 확인사항
 
-- DB 백업·복구, TLS, API key 교체, 사용자별 권한과 감사로그
+- DB 백업·복구, TLS, 사내 로그인 세션, 사용자별 권한과 업로드 감사로그
 - DRM 평문 artifact·DB 청크의 접근권한과 보존/폐기 정책
 - 대형 PDF 처리시간, Worker 수, GPU/CPU 자원 한도
 - embedding 차원과 SQL `vector(N)`의 일치 여부

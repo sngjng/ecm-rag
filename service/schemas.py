@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 AssetType = Literal["document", "incident", "error_trace", "source_code"]
@@ -16,6 +16,19 @@ LifecycleStatus = Literal["draft", "approved", "obsolete"]
 RelationType = Literal[
     "supersedes", "references", "related_to", "derived_from", "resolved_by", "applies_to"
 ]
+
+
+class LoginRequest(BaseModel):
+    employee_id: str = Field(min_length=1, max_length=50)
+    password: SecretStr = Field(min_length=1, max_length=256)
+
+
+class EmployeeIdentity(BaseModel):
+    employee_id: str = Field(min_length=1, max_length=50)
+    employee_name: str = Field(min_length=1, max_length=100)
+    department: str = Field(default="", max_length=200)
+    email: str = Field(default="", max_length=320)
+    roles: list[str] = Field(default_factory=list)
 
 
 class AssetCreate(BaseModel):

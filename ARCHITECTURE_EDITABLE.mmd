@@ -1,17 +1,23 @@
 flowchart TB
-    U["운영자 업로드 HTML"] --> API["FastAPI API 프로세스"]
+    U["사용자 로그인 / 업로드 HTML"] --> API["FastAPI API 프로세스"]
     OW["OpenWebUI + LLM"] --> API
+    API --> AUTH["Java 사내 로그인 Adapter"]
 
     subgraph ENDPOINTS["분리된 endpoint"]
         CRUD["Asset / Version / Relation CRUD"]
         INGEST["Upload / Job API"]
         SEARCH["Hybrid Search API"]
+        SESSION["Login / Session API"]
     end
     API --> CRUD
     API --> INGEST
     API --> SEARCH
+    API --> SESSION
 
     CRUD --> PG[("PostgreSQL 17\nRDB + FTS + pg_trgm + pgvector")]
+    SESSION --> PG
+    INGEST --> AUDIT["사원정보 Upload Audit"]
+    AUDIT --> PG
     INGEST --> FILES["격리 업로드 디렉터리"]
     INGEST --> QUEUE["ingestion_jobs 영속 Queue"]
     QUEUE --> PG

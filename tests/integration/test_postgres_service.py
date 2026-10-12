@@ -26,7 +26,7 @@ def clean_test_state():
 
     settings = get_settings()
     with connect() as connection:
-        connection.execute("TRUNCATE TABLE assets CASCADE")
+        connection.execute("TRUNCATE TABLE auth_sessions, assets CASCADE")
 
     for directory in (settings.paths.upload_root, settings.paths.artifact_root):
         shutil.rmtree(directory, ignore_errors=True)
@@ -34,7 +34,7 @@ def clean_test_state():
     yield
 
     with connect() as connection:
-        connection.execute("TRUNCATE TABLE assets CASCADE")
+        connection.execute("TRUNCATE TABLE auth_sessions, assets CASCADE")
 
     for directory in (settings.paths.upload_root, settings.paths.artifact_root):
         shutil.rmtree(directory, ignore_errors=True)
@@ -50,8 +50,19 @@ def client():
 
 
 @pytest.fixture
-def auth_headers() -> dict[str, str]:
-    return {"X-API-Key": "test-api-key"}
+def auth_headers(client) -> dict[str, str]:
+    """테스트 전용 사내 인증 stub으로 로그인하고 명시적 Cookie header를 반환한다."""
+    from service.config import get_settings
+
+    logged_in = client.post(
+        "/api/v1/auth/login",
+        json={"employee_id": "test", "password": "test"},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    cookie_name = get_settings().security.authentication.cookie_name
+    token = logged_in.cookies.get(cookie_name)
+    client.cookies.clear()
+    return {"Cookie": f"{cookie_name}={token}"}
 
 
 def test_health_auth_and_asset_crud(client, auth_headers):
@@ -64,6 +75,10 @@ def test_health_auth_and_asset_crud(client, auth_headers):
     assert ready.json() == {"status": "ready", "database": "postgresql"}
 
     assert client.get("/api/v1/assets").status_code == 401
+
+    me = client.get("/api/v1/auth/me", headers=auth_headers)
+    assert me.status_code == 200
+    assert me.json()["employee_id"] == "test"
 
     created = client.post(
         "/api/v1/assets",
@@ -148,3 +163,77 @@ def test_upload_worker_pgvector_search_roundtrip(client, auth_headers):
             "SELECT vector_dims(embedding) AS dimensions FROM chunks LIMIT 1"
         ).fetchone()
     assert row["dimensions"] == get_settings().models.embedding.dimension
+
+
+def test_upload_requires_confirmation_before_adding_existing_asset_version(client, auth_headers):
+    """같은 제목/파일명 후보는 자동 병합하지 않고 사용자 확인 후 버전으로 연결한다."""
+    common_data = {
+        "asset_type": "document",
+        "subtype": "operation_guide",
+        "title": "전자결재 운영지침",
+        "system_name": "전자결재",
+        "version_label": "1.0",
+    }
+    first = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data=common_data,
+        files={"file": ("approval-guide.txt", b"first version", "text/plain")},
+    )
+    assert first.status_code == 202, first.text
+    asset_id = first.json()["asset_id"]
+
+    candidate_response = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data={**common_data, "version_label": "2.0"},
+        files={"file": ("approval-guide.txt", b"updated second version", "text/plain")},
+    )
+    assert candidate_response.status_code == 409, candidate_response.text
+    body = candidate_response.json()
+    assert body["code"] == "duplicate_confirmation_required"
+    assert body["candidates"][0]["asset_id"] == asset_id
+    assert "동일한 제목" in body["candidates"][0]["match_reasons"]
+
+    # 확인 응답 전에는 새 Version이 만들어지지 않는다.
+    versions_before = client.get(
+        f"/api/v1/assets/{asset_id}/versions", headers=auth_headers
+    )
+    assert len(versions_before.json()["items"]) == 1
+
+    confirmed = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data={
+            **common_data,
+            "version_label": "2.0",
+            "duplicate_action": "new_version",
+            "confirmed_asset_id": asset_id,
+        },
+        files={"file": ("approval-guide.txt", b"updated second version", "text/plain")},
+    )
+    assert confirmed.status_code == 202, confirmed.text
+    assert confirmed.json()["asset_id"] == asset_id
+
+    versions_after = client.get(
+        f"/api/v1/assets/{asset_id}/versions", headers=auth_headers
+    )
+    assert len(versions_after.json()["items"]) == 2
+
+    from service.db import connect
+    with connect() as connection:
+        audit = connection.execute(
+            """SELECT action, employee_id, employee_name, department
+                 FROM upload_audit WHERE asset_id=%s ORDER BY created_at""",
+            (asset_id,),
+        ).fetchall()
+    assert [row["action"] for row in audit] == ["new_asset", "new_version"]
+    assert {row["employee_id"] for row in audit} == {"test"}
+    assert {row["department"] for row in audit} == {"IDC본부"}
+
+    history = client.get(
+        f"/api/v1/assets/{asset_id}/upload-history", headers=auth_headers
+    )
+    assert history.status_code == 200
+    assert len(history.json()["items"]) == 2
+    assert history.json()["items"][0]["employee_name"] == "테스트 사용자"

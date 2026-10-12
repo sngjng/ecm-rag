@@ -3,8 +3,9 @@
 업로드 요청 안에서는 다음 일만 수행한다.
 
 1. 자산 유형·확장자·경로·크기를 검증한다.
-2. 원본을 서버의 격리된 업로드 디렉터리에 저장한다.
-3. Asset/Version과 PostgreSQL ingestion job을 하나의 트랜잭션으로 등록한다.
+2. 원본을 서버의 격리된 업로드 디렉터리에 저장하고 기존 문서 후보를 판별한다.
+3. 후보가 있으면 사용자 확인을 요청하고, 확정된 등록 방식으로 처리한다.
+4. Asset/Version과 PostgreSQL ingestion job을 하나의 트랜잭션으로 등록한다.
 
 DRM, 파싱, 청킹, 임베딩은 응답 이후 별도 ``service.worker`` 프로세스가 수행한다.
 따라서 업로드 성공 응답은 처리 완료(200)가 아니라 작업 접수(202)를 의미한다.
@@ -15,8 +16,11 @@ import hashlib
 import re
 from pathlib import Path
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from psycopg.errors import UniqueViolation
+from service.auth import normalize_client_ip
 from service.config import get_settings
 from service.dependencies import authorize
 from service.repositories import assets, jobs
@@ -28,6 +32,7 @@ router = APIRouter(prefix="/ingestion", tags=["ingestion"], dependencies=[Depend
 
 @router.post("/uploads", status_code=status.HTTP_202_ACCEPTED)
 async def upload(
+    request: Request,
     file: UploadFile = File(...), asset_type: str = Form(...), asset_id: str = Form(""),
     subtype: str = Form("general"), title: str = Form(""), vendor: str = Form(""),
     product: str = Form(""), system_name: str = Form(""), service_name: str = Form(""),
@@ -35,15 +40,22 @@ async def upload(
     security_level: str = Form("internal"), version_label: str = Form("1"),
     lifecycle_status: str = Form(""), is_current: bool = Form(True),
     repository: str = Form(""), branch: str = Form(""), logical_path: str = Form(""),
+    duplicate_action: str = Form("check"), confirmed_asset_id: str = Form(""),
+    current_user: dict = Depends(authorize),
 ):
     """원본 파일을 저장하고 비동기 처리 작업을 등록한다.
 
-    ``asset_id``가 비어 있으면 새 논리 Asset을 만들고, 값이 있으면 기존 Asset의 새
-    Version으로 등록한다. 동일 Asset에서 ``is_current=true``인 버전은 DB 트랜잭션
-    안에서 하나만 유지된다.
+    기본 요청(``duplicate_action=check``)에서 기존 문서 후보가 발견되면 DB에 등록하지
+    않고 409와 후보 목록을 반환한다. 사용자가 확인한 재요청은 ``new_asset`` 또는
+    ``new_version``으로 확정한다. ``asset_id``는 기존 API 호환용이며 업로드 화면에서는
+    사용자가 직접 입력하지 않는다.
     """
     settings = get_settings()
     lifecycle_status = lifecycle_status or settings.ingestion.default_lifecycle_status
+    if duplicate_action not in {"check", "new_asset", "new_version"}:
+        raise HTTPException(422, "duplicate_action이 올바르지 않습니다")
+    if duplicate_action == "new_version" and not confirmed_asset_id:
+        raise HTTPException(422, "새 버전 등록에는 confirmed_asset_id가 필요합니다")
 
     # 자산 유형별 허용 확장자는 YAML에서 관리한다. 브라우저 accept 속성은 편의 기능일
     # 뿐이므로 서버에서 반드시 다시 검증한다.
@@ -102,10 +114,55 @@ async def upload(
                 handle.write(chunk)
         if size == 0:
             raise HTTPException(422, "빈 파일")
-        if asset_id:
+        digest_value = digest.hexdigest()
+        resolved_title = title or name
+
+        # 사용자가 UUID를 직접 입력하지 않아도 되도록 서버가 파일 해시·파일명·제목을
+        # 비교해 기존 Asset 후보를 찾는다. 후보가 있어도 자동 병합하지 않고 파일을
+        # 정리한 뒤 409 응답으로 사용자 확인을 요청한다.
+        duplicate_settings = settings.ingestion.duplicate_detection
+        candidates = []
+        if duplicate_settings.enabled and not asset_id:
+            candidates = assets.find_duplicate_candidates(
+                asset_type=asset_type,
+                title=resolved_title,
+                source_filename=name,
+                sha256=digest_value,
+                system_name=system_name,
+                service_name=service_name,
+                repository=repository,
+                logical_path=logical_path,
+                title_similarity_threshold=duplicate_settings.title_similarity_threshold,
+                limit=duplicate_settings.max_candidates,
+            )
+
+        if duplicate_action == "check" and candidates:
+            cleanup_upload()
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content=jsonable_encoder({
+                    "status": "confirmation_required",
+                    "code": "duplicate_confirmation_required",
+                    "message": "기존 문서 후보가 발견되었습니다. 등록 방식을 확인해 주세요.",
+                    "candidates": candidates,
+                }),
+            )
+
+        # 새 버전 선택은 직전 후보 목록 안의 Asset에만 허용한다. 확인 화면을 우회해
+        # 임의 Asset UUID에 버전을 연결하는 요청을 차단한다.
+        selected_asset_id = confirmed_asset_id if duplicate_action == "new_version" else asset_id
+        if duplicate_action == "new_version":
+            candidate_by_id = {str(item["asset_id"]): item for item in candidates}
+            selected = candidate_by_id.get(confirmed_asset_id)
+            if not selected:
+                raise HTTPException(409, "확인한 기존 문서 후보를 다시 찾을 수 없습니다")
+            if selected["exact_content"]:
+                raise HTTPException(409, "선택한 기존 문서에 동일한 파일 내용이 이미 등록되어 있습니다")
+
+        if selected_asset_id:
             # 기존 Asset의 새 버전 등록 경로. UUID, 존재 여부, 자산 유형 일치를 확인한다.
             try:
-                resolved_asset_id = UUID(asset_id)
+                resolved_asset_id = UUID(selected_asset_id)
             except ValueError as exc:
                 raise HTTPException(422, "asset_id 형식이 올바르지 않습니다") from exc
             existing = assets.get_asset(resolved_asset_id)
@@ -116,7 +173,7 @@ async def upload(
         else:
             # 신규 Asset 경로. 파일 저장이 끝난 후 메타데이터 원장을 만든다.
             created = assets.create_asset(AssetCreate(
-                asset_type=asset_type, subtype=subtype, title=title or name,
+                asset_type=asset_type, subtype=subtype, title=resolved_title,
                 vendor=vendor or None, product=product or None,
                 system_name=system_name or None, service_name=service_name or None,
                 component=component or None, owner_org=owner_org or None,
@@ -128,10 +185,16 @@ async def upload(
         # 실패하면 모두 rollback되어 고아 Version/Job이 남지 않는다.
         version, job = assets.create_version_and_job(
             asset_id=resolved_asset_id, version_label=version_label, source_filename=name,
-            source_path=str(target), sha256=digest.hexdigest(),
+            source_path=str(target), sha256=digest_value,
             lifecycle_status=lifecycle_status, is_current=is_current,
             effective_from=None, effective_to=None, repository=repository, branch=branch,
             logical_path=logical_path, max_attempts=settings.worker.max_attempts,
+            audit_action="new_version" if selected_asset_id else "new_asset",
+            employee_id=current_user["employee_id"],
+            employee_name=current_user["employee_name"],
+            department=current_user.get("department") or "",
+            client_ip=normalize_client_ip(request.client.host if request.client else None),
+            user_agent=request.headers.get("user-agent", "")[:500] or None,
         )
         return {"asset_id": resolved_asset_id, "version_id": version["version_id"],
                 "job_id": job["job_id"], "status": job["status"], "size": size}

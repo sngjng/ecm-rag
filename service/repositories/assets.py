@@ -63,6 +63,109 @@ def list_assets(
         ).fetchall()
 
 
+def find_duplicate_candidates(
+    *, asset_type: str, title: str, source_filename: str, sha256: str,
+    system_name: str, service_name: str, repository: str, logical_path: str,
+    title_similarity_threshold: float, limit: int,
+) -> list[dict[str, Any]]:
+    """업로드 원본과 같은 논리 문서일 가능성이 있는 Asset 후보를 찾는다.
+
+    전체 버전의 동일 내용 해시, 현재 버전의 파일명·소스 경로, 공백을 제거한 제목,
+    pg_trgm 제목 유사도를 함께 사용한다. 결과는 자동 병합 결정이 아니라 사용자 확인
+    화면에 제공할 후보이며 각 행에는 판별 근거 boolean/유사도 값이 포함된다.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """WITH input AS (
+                   SELECT %s::text AS asset_type, %s::text AS title,
+                          %s::text AS source_filename, %s::char(64) AS sha256,
+                          %s::text AS system_name, %s::text AS service_name,
+                          %s::text AS repository, %s::text AS logical_path
+                 ), latest_version AS (
+                   SELECT DISTINCT ON (v.asset_id)
+                          v.asset_id, v.version_id, v.version_label,
+                          v.source_filename, v.sha256, v.repository,
+                          v.logical_path, v.created_at
+                     FROM asset_versions v
+                    ORDER BY v.asset_id, v.is_current DESC, v.created_at DESC
+                 )
+               SELECT a.asset_id, a.asset_type, a.title, a.system_name, a.service_name,
+                      a.owner_org, a.updated_at, v.version_id AS current_version_id,
+                      v.version_label AS current_version_label,
+                      v.source_filename, v.created_at AS version_created_at,
+                      EXISTS (
+                        SELECT 1 FROM asset_versions ev
+                         WHERE ev.asset_id=a.asset_id AND ev.sha256=i.sha256
+                      ) AS exact_content,
+                      (lower(v.source_filename)=lower(i.source_filename)) AS exact_filename,
+                      (i.repository <> '' AND i.logical_path <> '' AND
+                       lower(coalesce(v.repository, ''))=lower(i.repository) AND
+                       lower(coalesce(v.logical_path, ''))=lower(i.logical_path)) AS exact_source_path,
+                      (regexp_replace(lower(trim(a.title)), '\\s+', '', 'g') =
+                       regexp_replace(lower(trim(i.title)), '\\s+', '', 'g')) AS exact_title,
+                      (i.system_name <> '' AND
+                       lower(coalesce(a.system_name, ''))=lower(i.system_name)) AS same_system,
+                      (i.service_name <> '' AND
+                       lower(coalesce(a.service_name, ''))=lower(i.service_name)) AS same_service,
+                      similarity(lower(a.title), lower(i.title)) AS title_similarity
+                 FROM assets a
+                 JOIN latest_version v USING (asset_id)
+                CROSS JOIN input i
+                WHERE a.deleted_at IS NULL
+                  AND a.asset_type=i.asset_type
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM asset_versions ev
+                       WHERE ev.asset_id=a.asset_id AND ev.sha256=i.sha256
+                    )
+                    OR (i.repository <> '' AND i.logical_path <> '' AND
+                        lower(coalesce(v.repository, ''))=lower(i.repository) AND
+                        lower(coalesce(v.logical_path, ''))=lower(i.logical_path))
+                    OR lower(v.source_filename)=lower(i.source_filename)
+                    OR regexp_replace(lower(trim(a.title)), '\\s+', '', 'g') =
+                       regexp_replace(lower(trim(i.title)), '\\s+', '', 'g')
+                    OR similarity(lower(a.title), lower(i.title)) >= %s
+                  )
+                ORDER BY EXISTS (
+                           SELECT 1 FROM asset_versions ev
+                            WHERE ev.asset_id=a.asset_id AND ev.sha256=i.sha256
+                         ) DESC,
+                         (i.repository <> '' AND i.logical_path <> '' AND
+                          lower(coalesce(v.repository, ''))=lower(i.repository) AND
+                          lower(coalesce(v.logical_path, ''))=lower(i.logical_path)) DESC,
+                         (regexp_replace(lower(trim(a.title)), '\\s+', '', 'g') =
+                          regexp_replace(lower(trim(i.title)), '\\s+', '', 'g')) DESC,
+                         (lower(v.source_filename)=lower(i.source_filename)) DESC,
+                         similarity(lower(a.title), lower(i.title)) DESC,
+                         v.created_at DESC
+                LIMIT %s""",
+            (
+                asset_type, title, source_filename, sha256,
+                system_name, service_name, repository, logical_path,
+                title_similarity_threshold, limit,
+            ),
+        ).fetchall()
+
+    for row in rows:
+        reasons = []
+        if row["exact_content"]:
+            reasons.append("동일한 파일 내용")
+        if row["exact_source_path"]:
+            reasons.append("동일한 저장소 경로")
+        if row["exact_title"]:
+            reasons.append("동일한 제목")
+        elif row["title_similarity"] >= title_similarity_threshold:
+            reasons.append(f"유사한 제목 ({row['title_similarity']:.0%})")
+        if row["exact_filename"]:
+            reasons.append("동일한 파일명")
+        if row["same_system"]:
+            reasons.append("동일한 시스템")
+        if row["same_service"]:
+            reasons.append("동일한 서비스")
+        row["match_reasons"] = reasons
+    return rows
+
+
 def update_asset(asset_id: UUID | str, payload: AssetUpdate) -> dict[str, Any] | None:
     """Pydantic의 ``exclude_unset``을 이용해 요청에 포함된 필드만 동적으로 갱신한다."""
     changes = payload.model_dump(exclude_unset=True)
@@ -110,7 +213,8 @@ def create_version_and_job(
     *, asset_id: UUID | str, version_label: str, source_filename: str, source_path: str,
     sha256: str, lifecycle_status: str, is_current: bool, effective_from: date | None,
     effective_to: date | None, repository: str, branch: str, logical_path: str,
-    max_attempts: int,
+    max_attempts: int, audit_action: str, employee_id: str, employee_name: str,
+    department: str, client_ip: str | None, user_agent: str | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """새 Version과 ingestion job을 원자적으로 생성한다.
 
@@ -144,6 +248,19 @@ def create_version_and_job(
                VALUES (%s,%s,%s) RETURNING *""",
             (job_id, version_id, max_attempts),
         ).fetchone()
+        # Version/Job과 같은 트랜잭션에 사원정보 snapshot을 기록해 접수 이력이
+        # 누락되거나 다른 문서에 연결되는 것을 방지한다.
+        conn.execute(
+            """INSERT INTO upload_audit
+               (audit_id, asset_id, version_id, job_id, action, employee_id,
+                employee_name, department, client_ip, user_agent)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                uuid4(), UUID(str(asset_id)), version_id, job_id, audit_action,
+                employee_id, employee_name, department or None,
+                client_ip, user_agent,
+            ),
+        )
     return version, job
 
 
@@ -152,6 +269,17 @@ def list_versions(asset_id: UUID | str) -> list[dict[str, Any]]:
     with connect() as conn:
         return conn.execute(
             "SELECT * FROM asset_versions WHERE asset_id=%s ORDER BY created_at DESC",
+            (UUID(str(asset_id)),),
+        ).fetchall()
+
+
+def list_upload_audit(asset_id: UUID | str) -> list[dict[str, Any]]:
+    """문서 접수 당시 사원정보와 신규/버전등록 이력을 시간 역순으로 반환한다."""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT audit_id, asset_id, version_id, job_id, action,
+                      employee_id, employee_name, department, created_at
+                 FROM upload_audit WHERE asset_id=%s ORDER BY created_at DESC""",
             (UUID(str(asset_id)),),
         ).fetchall()
 

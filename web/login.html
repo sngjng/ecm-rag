@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>로그인 · IDC본부 문서자산 업로드</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f6fb;
+      --surface: #fff;
+      --text: #172033;
+      --muted: #6b768b;
+      --line: #dfe5ef;
+      --primary: #4456e8;
+      --primary-strong: #3545c7;
+      --danger: #c43b55;
+      --danger-soft: #fff0f3;
+      font-family: Inter, Pretendard, "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      display: grid;
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      place-items: center;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 0, rgba(68, 86, 232, .13), transparent 34rem),
+        radial-gradient(circle at 100% 100%, rgba(20, 134, 109, .08), transparent 30rem),
+        var(--bg);
+    }
+    .shell { width: min(440px, calc(100% - 32px)); padding: 36px 0; }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 11px; margin-bottom: 24px; }
+    .brand img { display: block; width: 96px; height: auto; }
+    .brand__divider { width: 1px; height: 18px; background: #cbd4e2; }
+    .brand__title { font-size: 14px; font-weight: 800; }
+    .card { padding: 36px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: 0 28px 80px rgba(28, 39, 67, .12); }
+    .icon { display: grid; width: 48px; height: 48px; margin-bottom: 21px; place-items: center; border-radius: 15px; color: var(--primary); background: #e9edff; }
+    .icon svg { width: 24px; height: 24px; }
+    h1 { margin: 0 0 9px; font-size: 27px; letter-spacing: -.04em; }
+    .description { margin: 0 0 27px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .field { margin-top: 17px; }
+    label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 750; }
+    input {
+      width: 100%;
+      min-height: 48px;
+      padding: 0 14px;
+      border: 1px solid #cbd4e2;
+      border-radius: 12px;
+      outline: none;
+      color: var(--text);
+      background: var(--surface);
+      font: inherit;
+    }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(68, 86, 232, .11); }
+    button {
+      display: flex;
+      width: 100%;
+      min-height: 49px;
+      margin-top: 25px;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 0;
+      border-radius: 12px;
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 10px 22px rgba(68, 86, 232, .24);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { background: var(--primary-strong); }
+    button:disabled { opacity: .65; cursor: wait; }
+    .spinner { display: none; width: 17px; height: 17px; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    button.is-loading .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { display: none; margin: 16px 0 0; padding: 12px; border-radius: 10px; color: var(--danger); background: var(--danger-soft); font-size: 12px; line-height: 1.5; }
+    .error.is-visible { display: block; }
+    .notice { margin: 22px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; text-align: center; }
+    @media (max-width: 520px) { .card { padding: 28px 22px; } .brand__title { font-size: 12px; } }
+    @media (prefers-color-scheme: dark) {
+      :root { color-scheme: dark; --bg: #0d1220; --surface: #151b2b; --text: #eef1f8; --muted: #a4aec0; --line: #293248; --primary: #8290ff; --primary-strong: #7180f2; --danger: #ff8096; --danger-soft: #40202a; }
+      body { background: radial-gradient(circle at 15% 0, rgba(68,86,232,.17), transparent 34rem), var(--bg); }
+      .brand img { padding: 4px 6px; border-radius: 6px; background: #fff; }
+      input { border-color: #3b465f; }
+      .icon { background: #242d57; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand">
+      <img src="assets/hyundai-hds-logo.png" alt="현대HDS">
+      <span class="brand__divider" aria-hidden="true"></span>
+      <span class="brand__title">IDC본부. 문서자산 업로드</span>
+    </div>
+    <section class="card" aria-labelledby="login-title">
+      <span class="icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      </span>
+      <h1 id="login-title">사내 계정 로그인</h1>
+      <p class="description">문서 등록 이력을 정확하게 관리하기 위해 사내 인증 후 이용할 수 있습니다.</p>
+      <form id="login-form">
+        <div class="field">
+          <label for="employee-id">사번</label>
+          <input id="employee-id" autocomplete="username" maxlength="50" required autofocus placeholder="사번을 입력하세요">
+        </div>
+        <div class="field">
+          <label for="password">비밀번호</label>
+          <input id="password" type="password" autocomplete="current-password" required placeholder="비밀번호를 입력하세요">
+        </div>
+        <button id="login-button" type="submit">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="button-label">로그인</span>
+        </button>
+      </form>
+      <p id="error" class="error" role="alert"></p>
+      <p class="notice">인증정보는 사내 로그인 모듈에서 확인하며 비밀번호는 본 시스템에 저장하지 않습니다.</p>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector('#login-form');
+    const button = document.querySelector('#login-button');
+    const buttonLabel = document.querySelector('#button-label');
+    const errorBox = document.querySelector('#error');
+
+    async function readResponse(response) {
+      const type = response.headers.get('content-type') || '';
+      return type.includes('application/json') ? response.json() : { detail: await response.text() };
+    }
+
+    fetch('/api/v1/auth/me', { credentials: 'same-origin' }).then((response) => {
+      if (response.ok) window.location.replace('/');
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      button.classList.add('is-loading');
+      buttonLabel.textContent = '인증 중';
+      errorBox.classList.remove('is-visible');
+
+      try {
+        const response = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: document.querySelector('#employee-id').value.trim(),
+            password: document.querySelector('#password').value,
+          }),
+        });
+        const result = await readResponse(response);
+        if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '로그인에 실패했습니다.');
+        window.location.replace('/');
+      } catch (error) {
+        errorBox.textContent = error instanceof Error ? error.message : String(error);
+        errorBox.classList.add('is-visible');
+      } finally {
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        buttonLabel.textContent = '로그인';
+      }
+    });
+  </script>
+</body>
+</html>

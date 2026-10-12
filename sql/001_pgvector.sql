@@ -79,6 +79,27 @@ CREATE INDEX IF NOT EXISTS idx_jobs_claim
 CREATE INDEX IF NOT EXISTS idx_jobs_lease
   ON rag.ingestion_jobs(status, heartbeat_at) WHERE status='processing';
 
+-- HttpOnly 쿠키는 원문 토큰을 브라우저에만 두고 DB에는 SHA-256 해시를 저장한다.
+CREATE TABLE IF NOT EXISTS rag.auth_sessions (
+  session_id uuid PRIMARY KEY,
+  token_hash char(64) NOT NULL UNIQUE,
+  employee_id text NOT NULL,
+  employee_name text NOT NULL,
+  department text,
+  email text,
+  roles jsonb NOT NULL DEFAULT '[]'::jsonb,
+  expires_at timestamptz NOT NULL,
+  client_ip inet,
+  user_agent text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_active
+  ON rag.auth_sessions(token_hash, expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_employee
+  ON rag.auth_sessions(employee_id, created_at DESC);
+
 -- display_content는 사용자/LLM 제시용, embedding_content는 metadata context가 포함된 검색용이다.
 CREATE TABLE IF NOT EXISTS rag.chunks (
   chunk_id text PRIMARY KEY,
@@ -176,3 +197,22 @@ CREATE TABLE IF NOT EXISTS rag.asset_relations (
   PRIMARY KEY(source_asset_id, target_asset_id, relation_type),
   CHECK (source_asset_id <> target_asset_id)
 );
+
+-- 업로드 당시 사원정보 snapshot을 남겨 이후 인사정보 변경과 무관하게 이력을 보존한다.
+CREATE TABLE IF NOT EXISTS rag.upload_audit (
+  audit_id uuid PRIMARY KEY,
+  asset_id uuid NOT NULL REFERENCES rag.assets(asset_id),
+  version_id uuid NOT NULL REFERENCES rag.asset_versions(version_id),
+  job_id uuid NOT NULL REFERENCES rag.ingestion_jobs(job_id),
+  action text NOT NULL CHECK (action IN ('new_asset','new_version')),
+  employee_id text NOT NULL,
+  employee_name text NOT NULL,
+  department text,
+  client_ip inet,
+  user_agent text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_upload_audit_asset
+  ON rag.upload_audit(asset_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_upload_audit_employee
+  ON rag.upload_audit(employee_id, created_at DESC);

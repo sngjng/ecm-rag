@@ -3,151 +3,1024 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ECM 문서 자산화 · 자료 업로드</title>
+  <meta name="color-scheme" content="light dark">
+  <title>IDC본부. 문서자산 업로드</title>
   <style>
     /*
-     * 별도 프런트엔드 빌드 도구 없이 폐쇄망에 배포할 수 있도록 CSS와 JavaScript를
-     * 단일 HTML에 둔다. 이 화면은 업무 접수 UI이며 실제 문서 처리는 worker가 수행한다.
+     * 폐쇄망에서 외부 CDN 없이 바로 배포할 수 있도록 모든 스타일을 문서에 포함한다.
+     * 색상·간격·모서리 값을 토큰으로 관리해 사내 디자인 시스템 적용 시 교체가 쉽다.
      */
-    :root { font-family: system-ui, 'Malgun Gothic', sans-serif; color: #15243b; background: #f5f7fa; }
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --surface-accent: #f0f5ff;
+      --text: #172033;
+      --muted: #657189;
+      --subtle: #8b96aa;
+      --line: #e3e8f1;
+      --line-strong: #cbd4e2;
+      --primary: #4456e8;
+      --primary-strong: #3545c7;
+      --primary-soft: #e9edff;
+      --success: #14866d;
+      --success-soft: #e6f7f2;
+      --danger: #c43b55;
+      --danger-soft: #fff0f3;
+      --warning: #a96508;
+      --warning-soft: #fff6e6;
+      --shadow: 0 24px 70px rgba(28, 39, 67, .08);
+      --radius-xl: 24px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      font-family: Inter, Pretendard, "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    }
+
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    .bar { background: #fff; border-bottom: 1px solid #dbe3ed; padding: 19px max(20px, calc((100vw - 960px) / 2)); font-weight: 700; color: #0866ae; }
-    main { max-width: 960px; margin: 40px auto; padding: 0 20px; }
-    .card { background: #fff; border: 1px solid #e1e7ee; border-radius: 16px; padding: 28px; box-shadow: 0 6px 24px #15243b0b; }
-    h1 { font-size: 25px; margin: 0 0 8px; }
-    p { color: #50627a; line-height: 1.6; }
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-    label { display: block; font-size: 14px; font-weight: 650; margin-top: 18px; }
-    input, select { display: block; width: 100%; padding: 12px; border: 1px solid #c9d5e2; border-radius: 8px; margin-top: 7px; font: inherit; background: white; }
-    button { background: #0866ae; color: #fff; border: 0; border-radius: 8px; padding: 13px 20px; font: inherit; font-weight: 700; cursor: pointer; margin-top: 24px; }
-    button:disabled { opacity: .5; cursor: default; }
-    #message { white-space: pre-wrap; background: #f2f6fb; border-radius: 8px; padding: 14px; margin-top: 20px; min-height: 48px; }
-    small { color: #607087; }
-    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } .card { padding: 20px; } }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% -10%, rgba(68, 86, 232, .10), transparent 32rem),
+        radial-gradient(circle at 95% 15%, rgba(20, 134, 109, .07), transparent 28rem),
+        var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(227, 232, 241, .85);
+      background: rgba(255, 255, 255, .82);
+      backdrop-filter: blur(18px);
+    }
+    .topbar__inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1240px;
+      min-height: 68px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; font-weight: 800; letter-spacing: -.02em; }
+    .brand__logo-wrap {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      border-radius: 7px;
+    }
+    .brand__logo { display: block; width: 96px; height: auto; }
+    .brand__divider { width: 1px; height: 19px; background: var(--line-strong); }
+    .brand__label { overflow: hidden; color: var(--text); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+    .environment {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .environment::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
+    .topbar__actions { display: flex; align-items: center; gap: 9px; }
+    .user-chip { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+    .user-chip__avatar { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: #fff; background: var(--primary); font-size: 11px; font-weight: 850; }
+    .user-chip__text { display: grid; line-height: 1.25; }
+    .user-chip__name { font-size: 11px; font-weight: 800; }
+    .user-chip__department { color: var(--muted); font-size: 9px; }
+    .logout-button { padding: 7px 10px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 750; cursor: pointer; }
+    .logout-button:hover { color: var(--danger); background: var(--danger-soft); }
+
+    .page { max-width: 1240px; margin: 0 auto; padding: 56px 28px 72px; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 30px; }
+    .eyebrow { margin: 0 0 12px; color: var(--primary); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(32px, 4vw, 48px); line-height: 1.13; letter-spacing: -.045em; }
+    .hero__description { max-width: 700px; margin: 17px 0 0; color: var(--muted); font-size: 16px; line-height: 1.75; }
+    .hero__step { flex: 0 0 auto; padding: 10px 14px; border-radius: 999px; color: var(--primary); background: var(--primary-soft); font-size: 13px; font-weight: 800; }
+
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 332px; gap: 24px; align-items: start; }
+    .panel { border: 1px solid rgba(227, 232, 241, .95); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow); }
+    .form-panel { overflow: hidden; }
+    .section { padding: 30px 32px; border-bottom: 1px solid var(--line); }
+    .section:last-of-type { border-bottom: 0; }
+    .section__header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 22px; }
+    .section__number { display: grid; flex: 0 0 auto; width: 31px; height: 31px; place-items: center; border-radius: 10px; color: var(--primary); background: var(--primary-soft); font-size: 12px; font-weight: 850; }
+    .section h2 { margin: 1px 0 4px; font-size: 17px; letter-spacing: -.02em; }
+    .section__description { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .field--wide { grid-column: 1 / -1; }
+    .field { min-width: 0; }
+    label { display: inline-block; margin-bottom: 8px; font-size: 13px; font-weight: 750; }
+    .required { color: var(--danger); }
+    .field__hint { display: block; margin-top: 7px; color: var(--subtle); font-size: 12px; line-height: 1.5; }
+    input, select {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-md);
+      outline: none;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    input::placeholder { color: #a2abba; }
+    input:hover, select:hover { border-color: #aeb9cb; }
+    input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(68, 86, 232, .11); }
+    input[type="password"] { letter-spacing: .08em; }
+    .input-with-icon { position: relative; }
+    .input-with-icon input { padding-left: 42px; }
+    .input-with-icon svg { position: absolute; top: 14px; left: 14px; width: 18px; height: 18px; color: var(--subtle); pointer-events: none; }
+
+    .source-fields { display: contents; }
+    .source-fields .field { transition: opacity .18s ease; }
+    .source-fields.is-optional .field { opacity: .68; }
+
+    .dropzone {
+      position: relative;
+      display: grid;
+      min-height: 210px;
+      padding: 30px;
+      place-items: center;
+      border: 1.5px dashed #aeb9d2;
+      border-radius: var(--radius-lg);
+      text-align: center;
+      background: var(--surface-soft);
+      cursor: pointer;
+      transition: border-color .2s ease, background .2s ease, transform .2s ease;
+    }
+    .dropzone:hover, .dropzone.is-dragging { border-color: var(--primary); background: var(--surface-accent); transform: translateY(-1px); }
+    .dropzone:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(68, 86, 232, .11); }
+    .dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .dropzone__icon { display: grid; width: 52px; height: 52px; margin: 0 auto 15px; place-items: center; border-radius: 16px; color: var(--primary); background: var(--primary-soft); }
+    .dropzone__icon svg { width: 25px; height: 25px; }
+    .dropzone__title { margin: 0 0 6px; font-size: 15px; font-weight: 800; }
+    .dropzone__title span { color: var(--primary); }
+    .dropzone__caption { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .file-selected { display: none; align-items: center; gap: 13px; width: min(100%, 480px); text-align: left; }
+    .file-selected.is-visible { display: flex; }
+    .file-selected__badge { display: grid; flex: 0 0 auto; width: 46px; height: 46px; place-items: center; border-radius: 13px; color: var(--success); background: var(--success-soft); }
+    .file-selected__badge svg { width: 22px; height: 22px; }
+    .file-selected__meta { min-width: 0; flex: 1; }
+    .file-selected__name { overflow: hidden; margin: 0 0 4px; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .file-selected__size { margin: 0; color: var(--muted); font-size: 12px; }
+    .file-selected__change { color: var(--primary); font-size: 12px; font-weight: 750; }
+
+    .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 32px 30px; background: var(--surface-soft); }
+    .actions__note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .submit-button {
+      display: inline-flex;
+      flex: 0 0 auto;
+      min-height: 48px;
+      padding: 0 20px;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 0;
+      border-radius: var(--radius-md);
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 9px 20px rgba(68, 86, 232, .23);
+      font-weight: 800;
+      cursor: pointer;
+      transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+    }
+    .submit-button:hover { background: var(--primary-strong); transform: translateY(-1px); box-shadow: 0 12px 25px rgba(68, 86, 232, .28); }
+    .submit-button:focus-visible { outline: 3px solid rgba(68, 86, 232, .25); outline-offset: 3px; }
+    .submit-button:disabled { opacity: .62; cursor: wait; transform: none; box-shadow: none; }
+    .submit-button svg { width: 18px; height: 18px; }
+    .spinner { display: none; width: 17px; height: 17px; border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    .submit-button.is-loading .spinner { display: block; }
+    .submit-button.is-loading .button-icon { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .sidebar { position: sticky; top: 92px; display: grid; gap: 18px; }
+    .side-card { padding: 23px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: rgba(255, 255, 255, .9); box-shadow: 0 14px 36px rgba(28, 39, 67, .05); }
+    .side-card__title { display: flex; align-items: center; gap: 9px; margin: 0 0 18px; font-size: 14px; }
+    .side-card__title svg { width: 18px; height: 18px; color: var(--primary); }
+    .pipeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+    .pipeline__item { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 11px; min-height: 58px; }
+    .pipeline__item:not(:last-child)::after { content: ""; position: absolute; top: 25px; bottom: 4px; left: 13px; width: 1px; background: var(--line); }
+    .pipeline__dot { z-index: 1; display: grid; width: 27px; height: 27px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); background: var(--surface); font-size: 10px; font-weight: 850; }
+    .pipeline__name { display: block; margin-top: 3px; font-size: 13px; font-weight: 750; }
+    .pipeline__detail { display: block; margin-top: 3px; color: var(--subtle); font-size: 11px; }
+    .pipeline__item.is-active .pipeline__dot { border-color: var(--primary); color: #fff; background: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+    .pipeline__item.is-complete .pipeline__dot { border-color: var(--success); color: #fff; background: var(--success); }
+
+    .status-card { display: none; }
+    .status-card.is-visible { display: block; }
+    .status-card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
+    .status-card__head .side-card__title { margin: 0; }
+    .status-badge { padding: 6px 9px; border-radius: 999px; color: var(--primary); background: var(--primary-soft); font-size: 11px; font-weight: 850; }
+    .status-badge[data-state="completed"] { color: var(--success); background: var(--success-soft); }
+    .status-badge[data-state="failed"], .status-badge[data-state="cancelled"] { color: var(--danger); background: var(--danger-soft); }
+    .status-badge[data-state="processing"] { color: var(--warning); background: var(--warning-soft); }
+    .status-list { display: grid; gap: 11px; margin: 0; }
+    .status-row { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; font-size: 12px; }
+    .status-row dt { color: var(--subtle); }
+    .status-row dd { overflow-wrap: anywhere; margin: 0; color: var(--text); font-weight: 700; }
+    .error-box { display: none; margin: 16px 0 0; padding: 12px; border-radius: 10px; color: var(--danger); background: var(--danger-soft); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+    .error-box.is-visible { display: block; }
+    .assistive-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* 화면 어느 위치에서도 비동기 처리 상태를 놓치지 않도록 고정 상태창을 표시한다. */
+    .processing-window {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 40;
+      width: min(390px, calc(100vw - 32px));
+      padding: 20px;
+      border: 1px solid rgba(68, 86, 232, .2);
+      border-radius: 18px;
+      opacity: 0;
+      background: rgba(255, 255, 255, .97);
+      box-shadow: 0 24px 70px rgba(23, 32, 51, .2);
+      transform: translateY(18px) scale(.98);
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      backdrop-filter: blur(18px);
+    }
+    .processing-window.is-visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+    .processing-window__header { display: flex; align-items: flex-start; gap: 13px; }
+    .processing-window__indicator { display: grid; flex: 0 0 auto; width: 42px; height: 42px; place-items: center; border-radius: 13px; color: var(--primary); background: var(--primary-soft); }
+    .processing-window__spinner { width: 20px; height: 20px; border: 2px solid rgba(68, 86, 232, .22); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+    .processing-window__result-icon { display: none; width: 21px; height: 21px; }
+    .processing-window__content { min-width: 0; flex: 1; }
+    .processing-window__eyebrow { display: block; margin-bottom: 3px; color: var(--primary); font-size: 10px; font-weight: 850; letter-spacing: .09em; }
+    .processing-window__title { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+    .processing-window__description { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .processing-window__progress { position: relative; height: 4px; margin: 17px 0 13px; overflow: hidden; border-radius: 999px; background: var(--line); }
+    .processing-window__progress::after { content: ""; position: absolute; inset: 0; width: 42%; border-radius: inherit; background: var(--primary); animation: processing-slide 1.45s ease-in-out infinite; }
+    @keyframes processing-slide { from { transform: translateX(-115%); } to { transform: translateX(340%); } }
+    .processing-window__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--subtle); font-size: 11px; }
+    .processing-window__job { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .processing-window__close { display: none; margin-top: 15px; width: 100%; min-height: 38px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface-soft); font-size: 12px; font-weight: 800; cursor: pointer; }
+    .processing-window[data-state="completed"] { border-color: rgba(20, 134, 109, .25); }
+    .processing-window[data-state="completed"] .processing-window__indicator { color: var(--success); background: var(--success-soft); }
+    .processing-window[data-state="failed"], .processing-window[data-state="cancelled"] { border-color: rgba(196, 59, 85, .25); }
+    .processing-window[data-state="failed"] .processing-window__indicator,
+    .processing-window[data-state="cancelled"] .processing-window__indicator { color: var(--danger); background: var(--danger-soft); }
+    .processing-window[data-state="completed"] .processing-window__spinner,
+    .processing-window[data-state="failed"] .processing-window__spinner,
+    .processing-window[data-state="cancelled"] .processing-window__spinner,
+    .processing-window[data-state="timeout"] .processing-window__spinner { display: none; }
+    .processing-window[data-state="completed"] .processing-window__result-icon,
+    .processing-window[data-state="failed"] .processing-window__result-icon,
+    .processing-window[data-state="cancelled"] .processing-window__result-icon,
+    .processing-window[data-state="timeout"] .processing-window__result-icon { display: block; }
+    .processing-window[data-state="completed"] .processing-window__progress::after { width: 100%; background: var(--success); animation: none; }
+    .processing-window[data-state="failed"] .processing-window__progress::after,
+    .processing-window[data-state="cancelled"] .processing-window__progress::after,
+    .processing-window[data-state="timeout"] .processing-window__progress::after { width: 100%; background: var(--danger); animation: none; }
+    .processing-window[data-terminal="true"] .processing-window__close { display: block; }
+
+    .duplicate-dialog {
+      width: min(620px, calc(100vw - 32px));
+      max-height: min(760px, calc(100vh - 32px));
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      color: var(--text);
+      background: var(--surface);
+      box-shadow: 0 30px 90px rgba(16, 24, 40, .28);
+    }
+    .duplicate-dialog::backdrop { background: rgba(10, 16, 30, .58); backdrop-filter: blur(5px); }
+    .duplicate-dialog__body { padding: 28px; overflow-y: auto; }
+    .duplicate-dialog__icon { display: grid; width: 44px; height: 44px; margin-bottom: 16px; place-items: center; border-radius: 14px; color: var(--warning); background: var(--warning-soft); }
+    .duplicate-dialog__icon svg { width: 23px; height: 23px; }
+    .duplicate-dialog h2 { margin: 0 0 8px; font-size: 21px; letter-spacing: -.03em; }
+    .duplicate-dialog__description { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .candidate-list { display: grid; gap: 10px; }
+    .candidate {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr);
+      gap: 11px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface-soft);
+      cursor: pointer;
+    }
+    .candidate:has(input:checked) { border-color: var(--primary); background: var(--surface-accent); box-shadow: 0 0 0 3px rgba(68, 86, 232, .08); }
+    .candidate input { width: 17px; min-height: 17px; margin: 2px 0 0; padding: 0; accent-color: var(--primary); }
+    .candidate__title { display: block; margin-bottom: 5px; font-size: 14px; font-weight: 800; }
+    .candidate__meta { display: block; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .candidate__reasons { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+    .candidate__reason { padding: 4px 7px; border-radius: 999px; color: var(--primary); background: var(--primary-soft); font-size: 10px; font-weight: 750; }
+    .candidate__reason--exact { color: var(--danger); background: var(--danger-soft); }
+    .duplicate-dialog__notice { margin: 14px 0 0; padding: 11px 12px; border-radius: 10px; color: var(--muted); background: var(--surface-soft); font-size: 11px; line-height: 1.55; }
+    .duplicate-dialog__actions { display: flex; justify-content: flex-end; gap: 9px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+    .dialog-button { min-height: 42px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); font-size: 12px; font-weight: 800; cursor: pointer; }
+    .dialog-button:hover { border-color: var(--primary); }
+    .dialog-button:disabled { opacity: .45; cursor: not-allowed; }
+    .dialog-button--primary { border-color: var(--primary); color: #fff; background: var(--primary); }
+    .dialog-button--primary:hover { background: var(--primary-strong); }
+
+    @media (max-width: 980px) {
+      .workspace { grid-template-columns: 1fr; }
+      .sidebar { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 680px) {
+      .topbar__inner { min-height: 60px; padding: 0 18px; }
+      .brand { gap: 9px; }
+      .brand__logo { width: 82px; }
+      .brand__divider { display: none; }
+      .brand__label { font-size: 14px; }
+      .environment { font-size: 11px; }
+      .environment, .user-chip__text { display: none; }
+      .page { padding: 36px 16px 52px; }
+      .hero { display: block; }
+      .hero__step { display: inline-block; margin-top: 20px; }
+      h1 { font-size: 32px; }
+      .fields, .sidebar { grid-template-columns: 1fr; }
+      .section { padding: 25px 20px; }
+      .actions { align-items: stretch; flex-direction: column; padding: 20px; }
+      .submit-button { width: 100%; }
+      .dropzone { min-height: 190px; padding: 24px 16px; }
+      .duplicate-dialog__body { padding: 22px 18px; }
+      .duplicate-dialog__actions { align-items: stretch; flex-direction: column-reverse; padding: 16px 18px; }
+      .dialog-button { width: 100%; }
+      .processing-window { right: 16px; bottom: 16px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #0d1220;
+        --surface: #151b2b;
+        --surface-soft: #111827;
+        --surface-accent: #1b2443;
+        --text: #eef1f8;
+        --muted: #a4aec0;
+        --subtle: #7f8ba1;
+        --line: #293248;
+        --line-strong: #3b465f;
+        --primary: #8290ff;
+        --primary-strong: #7180f2;
+        --primary-soft: #242d57;
+        --success: #55c6a8;
+        --success-soft: #17372f;
+        --danger: #ff8096;
+        --danger-soft: #40202a;
+        --warning: #f0b75d;
+        --warning-soft: #3b2d18;
+        --shadow: 0 24px 70px rgba(0, 0, 0, .22);
+      }
+      body { background: radial-gradient(circle at 10% -10%, rgba(68, 86, 232, .16), transparent 32rem), var(--bg); }
+      .topbar { border-bottom-color: rgba(41, 50, 72, .9); background: rgba(13, 18, 32, .84); }
+      .side-card { background: rgba(21, 27, 43, .92); }
+      .processing-window { background: rgba(21, 27, 43, .97); }
+      input::placeholder { color: #69758b; }
+      .brand__logo-wrap { padding: 3px 5px; background: #fff; }
+    }
   </style>
 </head>
 <body>
-  <div class="bar">ECM 문서 자산화 · 지식자료 수집</div>
-  <main>
-    <div class="card">
-      <h1>문서 자산 등록</h1>
-      <p>원본 파일과 업무 메타데이터를 등록하면 API가 작업을 접수하고 별도 worker가 파싱·임베딩·인덱싱합니다.</p>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="brand">
+        <!-- 공식 현대HDS 웹사이트의 CI 원본을 프로젝트에 포함하여 폐쇄망에서도 표시한다. -->
+        <span class="brand__logo-wrap">
+          <img class="brand__logo" src="assets/hyundai-hds-logo.png" alt="현대HDS">
+        </span>
+        <span class="brand__divider" aria-hidden="true"></span>
+        <span class="brand__label">IDC본부. 문서자산 업로드</span>
+      </div>
+      <div class="topbar__actions">
+        <span class="environment">PostgreSQL · pgvector</span>
+        <span class="user-chip" aria-label="로그인 사용자">
+          <span id="user-avatar" class="user-chip__avatar">—</span>
+          <span class="user-chip__text"><span id="user-name" class="user-chip__name">확인 중</span><span id="user-department" class="user-chip__department"></span></span>
+        </span>
+        <button id="logout" class="logout-button" type="button">로그아웃</button>
+      </div>
+    </div>
+  </header>
 
+  <main class="page">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Knowledge ingestion</p>
+        <h1 id="page-title">조직의 문서를<br>검색 가능한 지식으로</h1>
+        <p class="hero__description">원본과 업무 메타데이터를 등록하세요. 접수된 자료는 별도 워커에서 파싱, 임베딩, 인덱싱 과정을 거칩니다.</p>
+      </div>
+      <span class="hero__step">새 자산 등록</span>
+    </section>
+
+    <div class="workspace">
       <!--
         form의 name은 POST /api/v1/ingestion/uploads의 Form 파라미터와 동일하다.
         필드를 변경할 때는 service/routes/ingestion.py의 upload() 계약도 함께 검토한다.
       -->
-      <form id="upload">
-        <!-- API 키는 FormData에 포함하지 않고 X-API-Key 헤더로만 전달한다. -->
-        <label>API 키
-          <input id="key" type="password" autocomplete="off" required placeholder="관리자에게 발급받은 키">
-        </label>
+      <form id="upload" class="panel form-panel">
+        <section class="section">
+          <div class="section__header">
+            <span class="section__number">01</span>
+            <div>
+              <h2>자산 기본 정보</h2>
+              <p class="section__description">기존 문서 여부와 버전 연결은 시스템이 자동 확인하고 등록 전에 안내합니다.</p>
+            </div>
+          </div>
+          <div class="fields">
+            <div class="field">
+              <label for="type">자산 유형 <span class="required" aria-label="필수">*</span></label>
+              <select name="asset_type" id="type">
+                <option value="document">업무·기술 문서</option>
+                <option value="incident">장애 이력</option>
+                <option value="error_trace">로그·스택트레이스</option>
+                <option value="source_code">소스코드</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="subtype">세부 유형</label>
+              <input name="subtype" id="subtype" value="general" placeholder="예: operation_manual">
+            </div>
+            <div class="field">
+              <label for="title">제목</label>
+              <input name="title" id="title" placeholder="비우면 파일명을 사용합니다">
+            </div>
+          </div>
+        </section>
 
-        <div class="grid">
-          <label>자산 유형
-            <select name="asset_type" id="type">
-              <option value="document">업무/기술 문서</option>
-              <option value="incident">장애 이력</option>
-              <option value="error_trace">로그·스택트레이스</option>
-              <option value="source_code">소스코드</option>
-            </select>
+        <section class="section">
+          <div class="section__header">
+            <span class="section__number">02</span>
+            <div>
+              <h2>업무 분류</h2>
+              <p class="section__description">검색 정확도와 접근 통제에 활용할 업무 맥락을 입력하세요.</p>
+            </div>
+          </div>
+          <div class="fields">
+            <div class="field"><label for="vendor">제조사</label><input name="vendor" id="vendor" placeholder="예: IBM"></div>
+            <div class="field"><label for="product">제품</label><input name="product" id="product" placeholder="예: WebSphere"></div>
+            <div class="field"><label for="system-name">시스템명</label><input name="system_name" id="system-name" placeholder="예: 전자결재"></div>
+            <div class="field"><label for="service-name">서비스명</label><input name="service_name" id="service-name" placeholder="예: 결재 승인 서비스"></div>
+            <div class="field"><label for="component">컴포넌트</label><input name="component" id="component" placeholder="예: API Gateway"></div>
+            <div class="field"><label for="owner-org">소유 부서</label><input name="owner_org" id="owner-org" placeholder="예: 플랫폼운영팀"></div>
+            <div class="field"><label for="security-level">보안 등급</label><input name="security_level" id="security-level" value="internal"></div>
+            <div class="field">
+              <label for="lifecycle-status">수명주기 상태</label>
+              <select name="lifecycle_status" id="lifecycle-status">
+                <option value="approved">승인</option>
+                <option value="draft">초안</option>
+                <option value="obsolete">폐기</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section__header">
+            <span class="section__number">03</span>
+            <div>
+              <h2>버전 및 원본 위치</h2>
+              <p class="section__description">소스코드 자산을 선택하면 리포지토리 정보가 필수로 전환됩니다.</p>
+            </div>
+          </div>
+          <div class="fields">
+            <div class="field"><label for="version-label">버전</label><input name="version_label" id="version-label" value="1" placeholder="예: 2026.09"></div>
+            <div class="field">
+              <label for="is-current">현재 버전</label>
+              <select name="is_current" id="is-current"><option value="true">예</option><option value="false">아니오</option></select>
+            </div>
+            <div id="source-fields" class="source-fields is-optional">
+              <div class="field">
+                <label for="repository">저장소 / 리포지토리 <span id="repository-required" class="required" aria-label="소스코드 선택 시 필수" hidden>*</span></label>
+                <input name="repository" id="repository" placeholder="예: ecm-rag">
+              </div>
+              <div class="field"><label for="branch">브랜치</label><input name="branch" id="branch" placeholder="예: release/2026.09"></div>
+              <div class="field field--wide"><label for="logical-path">저장소 내 상대 경로</label><input name="logical_path" id="logical-path" placeholder="예: src/main/java/com/company/Payment.java"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section__header">
+            <span class="section__number">04</span>
+            <div>
+              <h2>원본 파일</h2>
+              <p class="section__description">사내 DRM 처리가 필요한 문서는 서버 측 연계 지점에서 처리됩니다.</p>
+            </div>
+          </div>
+          <label id="dropzone" class="dropzone" for="file">
+            <input type="file" name="file" id="file" required accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml">
+            <div id="drop-prompt">
+              <span class="dropzone__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 13v6h14v-6"/></svg>
+              </span>
+              <p class="dropzone__title">파일을 끌어놓거나 <span>찾아보기</span></p>
+              <p id="file-guidance" class="dropzone__caption">PDF, DOCX, TXT, Markdown · 최대 100 MB</p>
+            </div>
+            <div id="file-selected" class="file-selected">
+              <span class="file-selected__badge" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 14l2.5 2.5L16 11"/></svg>
+              </span>
+              <span class="file-selected__meta">
+                <span id="file-name" class="file-selected__name"></span>
+                <span id="file-size" class="file-selected__size"></span>
+              </span>
+              <span class="file-selected__change">변경</span>
+            </div>
           </label>
-          <label>기존 Asset ID
-            <input name="asset_id" placeholder="신규 자산이면 비움, 새 버전이면 UUID">
-          </label>
-          <label>세부 유형<input name="subtype" value="general" placeholder="예: operation_manual"></label>
-          <label>제목<input name="title" placeholder="비우면 파일명 사용"></label>
-          <label>제조사<input name="vendor" placeholder="예: IBM"></label>
-          <label>제품<input name="product" placeholder="예: WebSphere"></label>
-          <label>시스템명<input name="system_name" placeholder="예: 전자결재"></label>
-          <label>서비스명<input name="service_name"></label>
-          <label>컴포넌트<input name="component"></label>
-          <label>소유 부서<input name="owner_org"></label>
-          <label>보안등급<input name="security_level" value="internal"></label>
-          <label>버전<input name="version_label" value="1" placeholder="예: 2026.09"></label>
-          <label>수명주기 상태
-            <select name="lifecycle_status">
-              <option value="approved">승인</option>
-              <option value="draft">초안</option>
-              <option value="obsolete">폐기</option>
-            </select>
-          </label>
-          <label>현재 버전
-            <select name="is_current"><option value="true">예</option><option value="false">아니오</option></select>
-          </label>
-          <label>저장소 / 리포지토리<input name="repository" placeholder="소스코드는 필수"></label>
-          <label>브랜치<input name="branch" placeholder="예: release/2026.09"></label>
-          <label>저장소 내 상대 경로<input name="logical_path" placeholder="예: src/main/java/.../Payment.java"></label>
-          <label>파일
-            <input type="file" name="file" id="file" required
-                   accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml">
-            <small>기본 최대 100 MB. 자산 유형마다 허용 확장자가 다릅니다.</small>
-          </label>
+        </section>
+
+        <div class="actions">
+          <p class="actions__note">기존 문서 후보를 먼저 확인한 뒤<br>등록과 처리 상태를 자동으로 안내합니다.</p>
+          <button id="submit" class="submit-button" type="submit">
+            <span class="spinner" aria-hidden="true"></span>
+            <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            <span id="button-label">업로드하고 처리 시작</span>
+          </button>
         </div>
-
-        <button id="submit" type="submit">업로드하고 처리 시작</button>
       </form>
-      <!-- aria-live를 사용해 polling 결과를 보조기기에도 알린다. -->
-      <div id="message" role="status" aria-live="polite">대기 중</div>
+
+      <aside class="sidebar" aria-label="처리 정보">
+        <section class="side-card">
+          <h2 class="side-card__title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+            처리 파이프라인
+          </h2>
+          <ol class="pipeline">
+            <li class="pipeline__item is-active" data-pipeline="upload">
+              <span class="pipeline__dot">1</span><span><span class="pipeline__name">업로드 접수</span><span class="pipeline__detail">원본·메타데이터 검증</span></span>
+            </li>
+            <li class="pipeline__item" data-pipeline="parse">
+              <span class="pipeline__dot">2</span><span><span class="pipeline__name">문서 파싱</span><span class="pipeline__detail">본문 추출 및 청킹</span></span>
+            </li>
+            <li class="pipeline__item" data-pipeline="embed">
+              <span class="pipeline__dot">3</span><span><span class="pipeline__name">벡터 임베딩</span><span class="pipeline__detail">BGE-M3 표현 생성</span></span>
+            </li>
+            <li class="pipeline__item" data-pipeline="index">
+              <span class="pipeline__dot">4</span><span><span class="pipeline__name">인덱싱 완료</span><span class="pipeline__detail">PostgreSQL · pgvector 저장</span></span>
+            </li>
+          </ol>
+        </section>
+
+        <section id="status-card" class="side-card status-card" aria-labelledby="status-title">
+          <div class="status-card__head">
+            <h2 id="status-title" class="side-card__title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              처리 현황
+            </h2>
+            <span id="status-badge" class="status-badge" data-state="queued">대기</span>
+          </div>
+          <dl class="status-list">
+            <div class="status-row"><dt>Asset</dt><dd id="status-asset">—</dd></div>
+            <div class="status-row"><dt>Version</dt><dd id="status-version">—</dd></div>
+            <div class="status-row"><dt>작업 ID</dt><dd id="status-job">—</dd></div>
+            <div class="status-row"><dt>처리 시도</dt><dd id="status-attempts">—</dd></div>
+            <div class="status-row"><dt>청크 수</dt><dd id="status-chunks">—</dd></div>
+          </dl>
+          <p id="error-box" class="error-box"></p>
+        </section>
+      </aside>
     </div>
+
+    <section id="processing-window" class="processing-window" data-state="queued" data-terminal="false" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true">
+      <div class="processing-window__header">
+        <span class="processing-window__indicator" aria-hidden="true">
+          <span class="processing-window__spinner"></span>
+          <svg class="processing-window__result-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 4 4L19 6"/></svg>
+        </span>
+        <div class="processing-window__content">
+          <span id="processing-eyebrow" class="processing-window__eyebrow">DOCUMENT PROCESSING</span>
+          <h2 id="processing-title" class="processing-window__title">문서를 처리하고 있습니다</h2>
+          <p id="processing-description" class="processing-window__description">창을 닫지 않아도 처리 상태가 자동으로 갱신됩니다.</p>
+        </div>
+      </div>
+      <div class="processing-window__progress" aria-hidden="true"></div>
+      <div class="processing-window__meta">
+        <span id="processing-job" class="processing-window__job">작업 접수 중</span>
+        <span id="processing-elapsed">00:00</span>
+      </div>
+      <button id="processing-close" class="processing-window__close" type="button">확인</button>
+    </section>
+
+    <!-- polling 결과는 시각 상태와 별도로 보조기기에 즉시 전달한다. -->
+    <p id="message" class="assistive-status" role="status" aria-live="polite">업로드 대기 중</p>
+
+    <dialog id="duplicate-dialog" class="duplicate-dialog" aria-labelledby="duplicate-title">
+      <div class="duplicate-dialog__body">
+        <span class="duplicate-dialog__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01"/><path d="M10.3 3.7 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.7a2 2 0 0 0-3.4 0Z"/></svg>
+        </span>
+        <h2 id="duplicate-title">기존 문서 후보가 있습니다</h2>
+        <p class="duplicate-dialog__description">업로드한 자료가 아래 문서의 새 버전인지 확인해 주세요. 시스템은 후보만 제안하며 최종 등록 방식은 사용자가 결정합니다.</p>
+        <div id="candidate-list" class="candidate-list" role="radiogroup" aria-label="기존 문서 후보"></div>
+        <p id="duplicate-notice" class="duplicate-dialog__notice">새 버전으로 등록하면 선택한 문서의 이력에 연결됩니다.</p>
+      </div>
+      <div class="duplicate-dialog__actions">
+        <button id="duplicate-cancel" class="dialog-button" type="button">취소</button>
+        <button id="create-separate" class="dialog-button" type="button">별도 신규 문서</button>
+        <button id="confirm-version" class="dialog-button dialog-button--primary" type="button">새 버전으로 등록</button>
+      </div>
+    </dialog>
   </main>
 
   <script>
     const form = document.querySelector('#upload');
     const message = document.querySelector('#message');
     const button = document.querySelector('#submit');
+    const buttonLabel = document.querySelector('#button-label');
+    const assetType = document.querySelector('#type');
+    const repository = document.querySelector('#repository');
+    const repositoryRequired = document.querySelector('#repository-required');
+    const sourceFields = document.querySelector('#source-fields');
+    const fileInput = document.querySelector('#file');
+    const dropzone = document.querySelector('#dropzone');
+    const dropPrompt = document.querySelector('#drop-prompt');
+    const selectedFile = document.querySelector('#file-selected');
+    const fileName = document.querySelector('#file-name');
+    const fileSize = document.querySelector('#file-size');
+    const fileGuidance = document.querySelector('#file-guidance');
+    const statusCard = document.querySelector('#status-card');
+    const statusBadge = document.querySelector('#status-badge');
+    const errorBox = document.querySelector('#error-box');
+    const processingWindow = document.querySelector('#processing-window');
+    const processingTitle = document.querySelector('#processing-title');
+    const processingDescription = document.querySelector('#processing-description');
+    const processingJob = document.querySelector('#processing-job');
+    const processingElapsed = document.querySelector('#processing-elapsed');
+    const processingResultPath = document.querySelector('.processing-window__result-icon path');
+    const processingClose = document.querySelector('#processing-close');
+    const duplicateDialog = document.querySelector('#duplicate-dialog');
+    const candidateList = document.querySelector('#candidate-list');
+    const duplicateNotice = document.querySelector('#duplicate-notice');
+    const confirmVersionButton = document.querySelector('#confirm-version');
+    let duplicateCandidates = [];
+    let processingStartedAt = null;
+    let processingTimer = null;
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      button.disabled = true; // 중복 클릭으로 동일 파일이 여러 번 접수되는 것을 방지한다.
-      message.textContent = '업로드 중…';
+    async function loadCurrentUser() {
+      const response = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+      if (!response.ok) {
+        window.location.replace('/login');
+        return;
+      }
+      const user = await response.json();
+      document.querySelector('#user-name').textContent = `${user.employee_name} (${user.employee_id})`;
+      document.querySelector('#user-department').textContent = user.department || '부서 정보 없음';
+      document.querySelector('#user-avatar').textContent = user.employee_name.slice(0, 1);
+    }
 
-      const key = document.querySelector('#key').value;
+    const stateLabels = {
+      uploading: '업로드 중',
+      queued: '접수 대기',
+      processing: '처리 중',
+      completed: '완료',
+      failed: '실패',
+      cancelled: '취소',
+      timeout: '확인 필요',
+    };
+
+    const processingCopy = {
+      uploading: ['파일을 업로드하고 있습니다', '원본 파일과 입력 정보를 서버로 안전하게 전송하는 중입니다.'],
+      queued: ['처리 순서를 기다리고 있습니다', '접수가 완료되었습니다. 워커가 작업을 시작하면 자동으로 안내합니다.'],
+      processing: ['문서를 처리하고 있습니다', '본문 추출, 청킹, 임베딩과 인덱싱을 진행합니다. 큰 문서는 시간이 걸릴 수 있습니다.'],
+      completed: ['문서 처리가 완료되었습니다', '검색 가능한 문서 자산으로 PostgreSQL과 pgvector에 저장되었습니다.'],
+      failed: ['문서 처리에 실패했습니다', '상세 원인은 처리 현황의 오류 메시지를 확인해 주세요.'],
+      cancelled: ['문서 처리가 취소되었습니다', '작업이 취소되어 저장을 완료하지 못했습니다.'],
+      timeout: ['처리 상태를 계속 확인해 주세요', '자동 확인 시간이 끝났지만 서버 작업은 계속될 수 있습니다.'],
+    };
+
+    function formatElapsed(milliseconds) {
+      const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+      const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const seconds = String(totalSeconds % 60).padStart(2, '0');
+      return `${minutes}:${seconds}`;
+    }
+
+    function updateProcessingElapsed() {
+      if (processingStartedAt) {
+        processingElapsed.textContent = formatElapsed(Date.now() - processingStartedAt);
+      }
+    }
+
+    function hideProcessingWindow() {
+      processingWindow.classList.remove('is-visible');
+      processingWindow.setAttribute('aria-hidden', 'true');
+      if (processingTimer) clearInterval(processingTimer);
+      processingTimer = null;
+      processingStartedAt = null;
+    }
+
+    function renderProcessingWindow(state, data = {}) {
+      const terminal = ['completed', 'failed', 'cancelled', 'timeout'].includes(state);
+      const copy = processingCopy[state] || processingCopy.processing;
+
+      if (state === 'uploading' || !processingStartedAt) {
+        processingStartedAt = Date.now();
+        processingElapsed.textContent = '00:00';
+      }
+      if (!processingTimer && !terminal) {
+        processingTimer = setInterval(updateProcessingElapsed, 1000);
+      }
+      if (terminal && processingTimer) {
+        clearInterval(processingTimer);
+        processingTimer = null;
+      }
+
+      processingWindow.dataset.state = state;
+      processingWindow.dataset.terminal = String(terminal);
+      processingTitle.textContent = copy[0];
+      processingDescription.textContent = data.error || copy[1];
+      processingJob.textContent = data.jobId ? `작업 ${data.jobId.slice(0, 8)}…` : stateLabels[state] || state;
+      processingResultPath.setAttribute('d', state === 'completed' ? 'm5 12 4 4L19 6' : 'M7 7l10 10M17 7 7 17');
+      processingWindow.setAttribute('aria-hidden', 'false');
+      processingWindow.classList.add('is-visible');
+      updateProcessingElapsed();
+    }
+
+    // 자산 유형에 따라 사용자가 선택할 수 있는 확장자 안내를 즉시 바꾼다.
+    const fileRules = {
+      document: { accept: '.pdf,.docx,.txt,.md', label: 'PDF, DOCX, TXT, Markdown · 최대 100 MB' },
+      incident: { accept: '.pdf,.docx,.txt,.md,.log', label: 'PDF, DOCX, TXT, Markdown, LOG · 최대 100 MB' },
+      error_trace: { accept: '.txt,.log,.md', label: 'TXT, LOG, Markdown · 최대 100 MB' },
+      source_code: { accept: '.py,.java,.sql,.js,.sh,.yml,.yaml,.md,.txt', label: 'PY, JAVA, SQL, JS, SH, YAML · 최대 100 MB' },
+    };
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return `${(bytes / (1024 ** unit)).toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    }
+
+    function showSelectedFile(file) {
+      const hasFile = Boolean(file);
+      dropPrompt.hidden = hasFile;
+      selectedFile.classList.toggle('is-visible', hasFile);
+      fileName.textContent = hasFile ? file.name : '';
+      fileSize.textContent = hasFile ? `${formatBytes(file.size)} · 업로드 준비됨` : '';
+    }
+
+    function updateAssetType() {
+      const isSourceCode = assetType.value === 'source_code';
+      const rule = fileRules[assetType.value] || fileRules.document;
+      repository.required = isSourceCode;
+      repositoryRequired.hidden = !isSourceCode;
+      sourceFields.classList.toggle('is-optional', !isSourceCode);
+      fileInput.accept = rule.accept;
+      fileGuidance.textContent = rule.label;
+
+      // 유형 변경 후 기존 선택 파일이 새 허용 형식과 다를 수 있으므로 다시 선택하게 한다.
+      if (fileInput.files.length > 0) {
+        const extension = `.${fileInput.files[0].name.split('.').pop().toLowerCase()}`;
+        if (!rule.accept.split(',').includes(extension)) {
+          fileInput.value = '';
+          showSelectedFile(null);
+          message.textContent = '자산 유형에 맞는 파일을 다시 선택해 주세요.';
+        }
+      }
+    }
+
+    function setPipelineState(state) {
+      const items = [...document.querySelectorAll('.pipeline__item')];
+      const activeIndex = state === 'uploading' || state === 'queued' ? 0 : state === 'processing' ? 2 : 3;
+      items.forEach((item, index) => {
+        item.classList.toggle('is-complete', state === 'completed' || index < activeIndex);
+        item.classList.toggle('is-active', state !== 'completed' && index === activeIndex);
+      });
+    }
+
+    function renderStatus(state, data = {}) {
+      statusCard.classList.add('is-visible');
+      statusBadge.dataset.state = state;
+      statusBadge.textContent = stateLabels[state] || state;
+      document.querySelector('#status-asset').textContent = data.assetId || '—';
+      document.querySelector('#status-version').textContent = data.versionId || '—';
+      document.querySelector('#status-job').textContent = data.jobId || '—';
+      document.querySelector('#status-attempts').textContent = data.attempts || '—';
+      document.querySelector('#status-chunks').textContent = data.chunkCount ?? '—';
+      errorBox.textContent = data.error || '';
+      errorBox.classList.toggle('is-visible', Boolean(data.error));
+      setPipelineState(state);
+      renderProcessingWindow(state, data);
+    }
+
+    function setLoading(isLoading, loadingLabel = '처리 상태 확인 중') {
+      button.disabled = isLoading;
+      button.classList.toggle('is-loading', isLoading);
+      buttonLabel.textContent = isLoading ? loadingLabel : '업로드하고 처리 시작';
+    }
+
+    // HTML 오류 응답도 운영자에게 의미 있는 메시지로 노출하기 위한 안전한 응답 파서다.
+    async function readResponse(response) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) return response.json();
+      return { detail: await response.text() || `HTTP ${response.status}` };
+    }
+
+    function selectedCandidate() {
+      const selected = candidateList.querySelector('input[name="duplicate-candidate"]:checked');
+      return duplicateCandidates.find((candidate) => candidate.asset_id === selected?.value);
+    }
+
+    function updateDuplicateAction() {
+      const candidate = selectedCandidate();
+      const isExactContent = Boolean(candidate?.exact_content);
+      confirmVersionButton.disabled = !candidate || isExactContent;
+      duplicateNotice.textContent = isExactContent
+        ? '파일 내용이 완전히 동일합니다. 중복 버전은 등록할 수 없으며, 필요한 경우에만 별도 신규 문서로 등록하세요.'
+        : '새 버전으로 등록하면 선택한 문서의 이력에 연결되고 현재 버전이 갱신됩니다.';
+    }
+
+    function showDuplicateConfirmation(candidates) {
+      duplicateCandidates = candidates;
+      candidateList.replaceChildren();
+
+      candidates.forEach((candidate, index) => {
+        const label = document.createElement('label');
+        label.className = 'candidate';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'duplicate-candidate';
+        radio.value = candidate.asset_id;
+        radio.checked = index === 0;
+        radio.addEventListener('change', updateDuplicateAction);
+
+        const content = document.createElement('span');
+        const title = document.createElement('span');
+        title.className = 'candidate__title';
+        title.textContent = candidate.title;
+
+        const meta = document.createElement('span');
+        meta.className = 'candidate__meta';
+        meta.textContent = [
+          candidate.system_name && `시스템: ${candidate.system_name}`,
+          candidate.service_name && `서비스: ${candidate.service_name}`,
+          candidate.current_version_label && `현재 버전: ${candidate.current_version_label}`,
+          candidate.source_filename && `파일: ${candidate.source_filename}`,
+        ].filter(Boolean).join(' · ') || '추가 업무 정보 없음';
+
+        const reasons = document.createElement('span');
+        reasons.className = 'candidate__reasons';
+        candidate.match_reasons.forEach((reason) => {
+          const badge = document.createElement('span');
+          badge.className = `candidate__reason${candidate.exact_content ? ' candidate__reason--exact' : ''}`;
+          badge.textContent = reason;
+          reasons.append(badge);
+        });
+
+        content.append(title, meta, reasons);
+        label.append(radio, content);
+        candidateList.append(label);
+      });
+
+      updateDuplicateAction();
+      duplicateDialog.showModal();
+      message.textContent = '기존 문서 후보를 확인해 주세요.';
+    }
+
+    assetType.addEventListener('change', updateAssetType);
+    fileInput.addEventListener('change', () => showSelectedFile(fileInput.files[0]));
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropzone.classList.add('is-dragging');
+      });
+    });
+    ['dragleave', 'drop'].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('is-dragging');
+      });
+    });
+    dropzone.addEventListener('drop', (event) => {
+      if (!event.dataTransfer.files.length) return;
+      const transfer = new DataTransfer();
+      transfer.items.add(event.dataTransfer.files[0]);
+      fileInput.files = transfer.files;
+      showSelectedFile(fileInput.files[0]);
+    });
+
+    async function submitUpload(duplicateAction = 'check', confirmedAssetId = '') {
+      if (!form.reportValidity()) return;
+
+      if (duplicateDialog.open) duplicateDialog.close();
+      const checkingDuplicates = duplicateAction === 'check';
+      setLoading(true, checkingDuplicates ? '기존 문서 확인 중' : '처리 상태 확인 중');
+      message.textContent = checkingDuplicates
+        ? '파일을 업로드하고 기존 문서 여부를 확인하고 있습니다.'
+        : '선택한 등록 방식으로 파일을 업로드하고 있습니다.';
+      renderStatus('uploading');
+
       const body = new FormData(form);
+      body.set('duplicate_action', duplicateAction);
+      if (confirmedAssetId) body.set('confirmed_asset_id', confirmedAssetId);
 
       try {
-        // 1단계: 파일 저장, Asset/Version 생성, ingestion job 등록까지만 수행한다.
-        // 파싱과 임베딩은 요청 안에서 실행하지 않으므로 응답 코드는 202 Accepted다.
+        // 첫 요청은 서버가 파일 해시·파일명·제목을 비교한다. 기존 문서 후보가 있으면
+        // 등록하지 않고 409 confirmation_required로 사용자 결정을 요청한다.
         const response = await fetch('/api/v1/ingestion/uploads', {
           method: 'POST',
-          headers: { 'X-API-Key': key },
+          credentials: 'same-origin',
           body,
         });
-        const result = await response.json();
-        if (!response.ok) throw new Error(JSON.stringify(result.detail));
+        const result = await readResponse(response);
 
-        message.textContent = `접수 완료: ${result.asset_id}\n현재 상태: ${result.status}`;
-        const jobId = result.job_id;
+        if (response.status === 409 && result.code === 'duplicate_confirmation_required') {
+          statusCard.classList.remove('is-visible');
+          hideProcessingWindow();
+          setPipelineState('uploading');
+          showDuplicateConfirmation(result.candidates || []);
+          return;
+        }
+        if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail));
+
+        const identifiers = {
+          assetId: result.asset_id,
+          versionId: result.version_id,
+          jobId: result.job_id,
+        };
+        message.textContent = `접수 완료. 작업 ${result.job_id}의 처리를 기다리고 있습니다.`;
+        renderStatus(result.status || 'queued', identifiers);
 
         // 2단계: worker가 비동기로 처리하므로 3초 간격으로 최대 12분간 상태를 조회한다.
         // queued → processing → completed가 정상 경로이며 재시도 소진 시 failed가 된다.
+        let finished = false;
         for (let attempt = 0; attempt < 240; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
-          const statusResponse = await fetch(`/api/v1/ingestion/jobs/${jobId}`, {
-            headers: { 'X-API-Key': key },
+          const statusResponse = await fetch(`/api/v1/ingestion/jobs/${result.job_id}`, {
+            credentials: 'same-origin',
           });
-          if (!statusResponse.ok) throw new Error('상태 조회 실패');
+          if (statusResponse.status === 401) {
+            window.location.replace('/login');
+            return;
+          }
+          const state = await readResponse(statusResponse);
+          if (!statusResponse.ok) throw new Error(typeof state.detail === 'string' ? state.detail : '상태 조회에 실패했습니다.');
 
-          const state = await statusResponse.json();
-          message.textContent =
-            `Asset: ${result.asset_id}\n` +
-            `Version: ${result.version_id}\n` +
-            `작업 ID: ${jobId}\n` +
-            `상태: ${state.status}\n` +
-            `시도: ${state.attempts}/${state.max_attempts}\n` +
-            `인덱싱된 청크: ${state.chunk_count}` +
-            (state.error_detail ? `\n오류: ${state.error_detail}` : '');
+          renderStatus(state.status, {
+            ...identifiers,
+            attempts: `${state.attempts}/${state.max_attempts}`,
+            chunkCount: state.chunk_count,
+            error: state.error_detail,
+          });
+          message.textContent = `현재 처리 상태: ${stateLabels[state.status] || state.status}`;
 
-          if (state.status === 'completed' || state.status === 'failed') break;
+          if (['completed', 'failed', 'cancelled'].includes(state.status)) {
+            finished = true;
+            break;
+          }
+        }
+
+        if (!finished) {
+          message.textContent = '자동 상태 확인 시간이 종료되었습니다. 작업 ID로 서버 상태를 확인해 주세요.';
+          renderStatus('timeout', identifiers);
         }
       } catch (error) {
         // FastAPI의 detail 또는 네트워크 오류를 운영자가 화면에서 바로 확인할 수 있게 한다.
-        message.textContent = `요청 실패: ${error.message}`;
+        const detail = error instanceof Error ? error.message : String(error);
+        message.textContent = `요청 실패: ${detail}`;
+        renderStatus('failed', { error: detail });
       } finally {
-        button.disabled = false;
+        setLoading(false);
       }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      submitUpload();
     });
+
+    document.querySelector('#duplicate-cancel').addEventListener('click', () => {
+      duplicateDialog.close();
+      message.textContent = '등록을 취소했습니다. 입력 내용과 파일은 그대로 유지됩니다.';
+    });
+    document.querySelector('#create-separate').addEventListener('click', () => {
+      submitUpload('new_asset');
+    });
+    confirmVersionButton.addEventListener('click', () => {
+      const candidate = selectedCandidate();
+      if (candidate && !candidate.exact_content) submitUpload('new_version', candidate.asset_id);
+    });
+    processingClose.addEventListener('click', hideProcessingWindow);
+
+    document.querySelector('#logout').addEventListener('click', async () => {
+      await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      window.location.replace('/login');
+    });
+
+    loadCurrentUser();
+    updateAssetType();
   </script>
 </body>
 </html>

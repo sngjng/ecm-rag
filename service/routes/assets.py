@@ -73,6 +73,14 @@ def list_versions(asset_id: UUID):
     ]}
 
 
+@router.get("/{asset_id}/upload-history")
+def list_upload_history(asset_id: UUID):
+    """사번·성명·부서가 포함된 문서 업로드 감사 이력을 반환한다."""
+    if not assets.get_asset(asset_id):
+        raise HTTPException(404, "asset을 찾을 수 없습니다")
+    return {"items": assets.list_upload_audit(asset_id)}
+
+
 @router.post("/{asset_id}/relations", status_code=status.HTTP_201_CREATED)
 def create_relation(asset_id: UUID, payload: RelationCreate):
     """두 Asset 사이에 참조·대체·파생 등의 방향성 관계를 만든다."""

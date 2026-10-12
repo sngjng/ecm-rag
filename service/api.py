@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from service.config import get_settings
-from service.routes import assets, ingestion, search, system
+from service.routes import assets, auth, ingestion, search, system
 
 
 # get_settings()는 프로세스 안에서 캐시된다. 운영 중 profile이 임의로 바뀌지 않게 하고,
@@ -22,9 +23,11 @@ app = FastAPI(
     redoc_url=None,
 )
 app.include_router(system.router)
+app.include_router(auth.router, prefix=settings.server.api_prefix)
 app.include_router(assets.router, prefix=settings.server.api_prefix)
 app.include_router(ingestion.router, prefix=settings.server.api_prefix)
 app.include_router(search.router, prefix=settings.server.api_prefix)
+app.mount("/assets", StaticFiles(directory=settings.paths.web_root / "assets"), name="web-assets")
 
 
 @app.get("/", include_in_schema=False)
@@ -35,3 +38,9 @@ def index():
     영향을 받지 않는다.
     """
     return FileResponse(settings.paths.web_root / "upload.html", media_type="text/html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page():
+    """사내 인증 모듈과 연결되는 로그인 화면을 반환한다."""
+    return FileResponse(settings.paths.web_root / "login.html", media_type="text/html")
