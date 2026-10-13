@@ -16,6 +16,34 @@ from service.db import connect
 from service.schemas import AssetCreate, AssetUpdate, RelationCreate
 
 
+def try_acquire_upload_lock(sha256: str):
+    """같은 원본 해시에 대한 동시 등록을 PostgreSQL session lock으로 직렬화한다.
+
+    대기하지 않는 try-lock을 사용하므로 동일 파일 요청이 몰려도 API worker가 잠긴 채
+    쌓이지 않는다. 반환된 connection은 반드시 ``release_upload_lock``으로 닫아야 한다.
+    """
+    lock_key = int(sha256[:16], 16)
+    if lock_key >= 2**63:
+        lock_key -= 2**64
+    conn = connect()
+    try:
+        acquired = conn.execute(
+            "SELECT pg_try_advisory_lock(%s) AS acquired", (lock_key,)
+        ).fetchone()["acquired"]
+        if not acquired:
+            conn.close()
+            return None
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def release_upload_lock(connection) -> None:
+    """원본 해시 등록 lock을 connection 종료로 확실히 해제한다."""
+    connection.close()
+
+
 def create_asset(payload: AssetCreate) -> dict[str, Any]:
     """논리 문서 자산의 식별자와 업무 메타데이터를 생성한다."""
     asset_id = uuid4()
@@ -61,6 +89,27 @@ def list_assets(
                ORDER BY created_at DESC LIMIT %s OFFSET %s""",
             (asset_type, asset_type, system_name, system_name, limit, offset),
         ).fetchall()
+
+
+def count_assets_by_type() -> dict[str, int]:
+    """삭제되지 않은 논리 문서자산 수를 자산 유형별로 집계한다."""
+    counts = {
+        "document": 0,
+        "incident": 0,
+        "error_trace": 0,
+        "source_code": 0,
+    }
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT asset_type, count(*) AS count
+                 FROM assets
+                WHERE deleted_at IS NULL
+                GROUP BY asset_type"""
+        ).fetchall()
+    for row in rows:
+        if row["asset_type"] in counts:
+            counts[row["asset_type"]] = int(row["count"])
+    return counts
 
 
 def find_duplicate_candidates(
@@ -271,6 +320,18 @@ def list_versions(asset_id: UUID | str) -> list[dict[str, Any]]:
             "SELECT * FROM asset_versions WHERE asset_id=%s ORDER BY created_at DESC",
             (UUID(str(asset_id)),),
         ).fetchall()
+
+
+def get_version(asset_id: UUID | str, version_id: UUID | str) -> dict[str, Any] | None:
+    """활성 Asset에 속한 특정 버전과 원본 저장 정보를 반환한다."""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT v.*
+                 FROM asset_versions v
+                 JOIN assets a USING (asset_id)
+                WHERE v.asset_id=%s AND v.version_id=%s AND a.deleted_at IS NULL""",
+            (UUID(str(asset_id)), UUID(str(version_id))),
+        ).fetchone()
 
 
 def list_upload_audit(asset_id: UUID | str) -> list[dict[str, Any]]:

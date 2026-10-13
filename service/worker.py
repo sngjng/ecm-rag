@@ -126,17 +126,21 @@ def process(job_id: str, worker_id: str) -> None:
     try:
         with lease_heartbeat(job_id, worker_id, heartbeat_interval):
             output.mkdir(parents=True, exist_ok=True)
+            jobs.update_stage(job_id, worker_id, "decrypting")
             source = decrypt(raw, clear)
+            jobs.update_stage(job_id, worker_id, "parsing")
             items, report = _parse(job, source, output)
             if not items:
                 raise ValueError("검색 가능한 내용을 추출하지 못했습니다")
             _add_asset_context(items, job)
+            jobs.update_stage(job_id, worker_id, "embedding")
             vectors = embed([item.embedding_text or item.text for item in items])
             report.update({
                 "parser": settings.solutions.document_parser,
                 "embedding_model": settings.models.embedding.model,
                 "profile": settings.runtime.environment,
             })
+            jobs.update_stage(job_id, worker_id, "saving")
             jobs.complete_job(
                 job_id, worker_id, items, vectors, report, settings.models.embedding.model
             )
@@ -155,7 +159,10 @@ def run(poll_seconds: float | None = None) -> None:
     settings = get_settings()
     settings.paths.upload_root.mkdir(parents=True, exist_ok=True)
     settings.paths.artifact_root.mkdir(parents=True, exist_ok=True)
-    worker_id = settings.worker.worker_name or f"{socket.gethostname()}:{os.getpid()}"
+    # 동일한 설정 이름으로 여러 프로세스를 실행해도 lease 소유자가 겹치지 않게 PID를
+    # 항상 포함한다.
+    worker_prefix = settings.worker.worker_name or socket.gethostname()
+    worker_id = f"{worker_prefix}:{os.getpid()}"
     poll = poll_seconds if poll_seconds is not None else settings.worker.poll_seconds
     logger.info("worker started id=%s profile=%s", worker_id, settings.runtime.environment)
     while True:

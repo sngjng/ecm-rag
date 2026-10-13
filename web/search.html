@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>IDC본부. 문서자산 조회</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --surface: #ffffff;
+        --surface-soft: #f8fafc;
+        --text: #172033;
+        --muted: #657189;
+        --subtle: #8b96aa;
+        --line: #e3e8f1;
+        --line-strong: #cbd4e2;
+        --primary: #4456e8;
+        --primary-strong: #3545c7;
+        --primary-soft: #e9edff;
+        --danger: #c43b55;
+        --danger-soft: #fff0f3;
+        --shadow: 0 24px 70px rgba(28, 39, 67, 0.09);
+        font-family:
+          Inter, Pretendard, "Noto Sans KR", "Malgun Gothic", system-ui,
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(
+            circle at 12% -10%,
+            rgba(68, 86, 232, 0.11),
+            transparent 34rem
+          ),
+          radial-gradient(
+            circle at 92% 22%,
+            rgba(20, 134, 109, 0.06),
+            transparent 30rem
+          ),
+          var(--bg);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgba(227, 232, 241, 0.85);
+        background: rgba(255, 255, 255, 0.84);
+        backdrop-filter: blur(18px);
+      }
+
+      .topbar__inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        max-width: 1120px;
+        min-height: 68px;
+        margin: 0 auto;
+        padding: 0 28px;
+      }
+
+      .brand,
+      .topbar__actions,
+      .user-chip {
+        display: flex;
+        align-items: center;
+      }
+
+      .brand {
+        gap: 12px;
+        min-width: 0;
+        font-weight: 800;
+      }
+
+      .brand__logo {
+        display: block;
+        width: 96px;
+        height: auto;
+      }
+
+      .brand__divider {
+        width: 1px;
+        height: 19px;
+        background: var(--line-strong);
+      }
+
+      .brand__label {
+        overflow: hidden;
+        font-size: 15px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .topbar__actions {
+        gap: 9px;
+      }
+
+      .user-chip {
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+      }
+
+      .user-chip__avatar {
+        display: grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        border-radius: 50%;
+        color: #fff;
+        background: var(--primary);
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .user-chip__text {
+        display: grid;
+        line-height: 1.25;
+      }
+
+      .user-chip__name {
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .user-chip__department {
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .logout-button {
+        padding: 7px 10px;
+        border: 0;
+        border-radius: 9px;
+        color: var(--muted);
+        background: transparent;
+        font-size: 11px;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      .page {
+        width: min(100%, 1120px);
+        margin: 0 auto;
+        padding: 64px 28px 80px;
+      }
+
+      .hero {
+        max-width: 760px;
+        margin: 0 auto 30px;
+        text-align: center;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 50px);
+        line-height: 1.14;
+        letter-spacing: -0.045em;
+      }
+
+      .hero__description {
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .asset-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 9px;
+        max-width: 680px;
+        margin: 22px auto 0;
+      }
+
+      .asset-count {
+        display: grid;
+        gap: 3px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: rgba(255, 255, 255, 0.7);
+        box-shadow: 0 8px 24px rgba(28, 39, 67, 0.04);
+        text-align: left;
+      }
+
+      .asset-count__label {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .asset-count__value {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+      }
+
+      .asset-count__unit {
+        margin-left: 2px;
+        color: var(--subtle);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .prompt-panel {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .prompt-input {
+        display: block;
+        width: 100%;
+        min-height: 112px;
+        padding: 18px 18px 12px;
+        resize: vertical;
+        border: 0;
+        outline: none;
+        color: var(--text);
+        background: transparent;
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      .prompt-input::placeholder {
+        color: #9aa5b7;
+      }
+
+      .prompt-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 8px;
+      }
+
+      .prompt-hint {
+        margin: 0;
+        color: var(--subtle);
+        font-size: 11px;
+      }
+
+      .search-button {
+        display: inline-flex;
+        min-width: 112px;
+        min-height: 44px;
+        padding: 0 18px;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        border: 0;
+        border-radius: 12px;
+        color: #fff;
+        background: var(--primary);
+        box-shadow: 0 9px 20px rgba(68, 86, 232, 0.22);
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .search-button:hover {
+        background: var(--primary-strong);
+      }
+
+      .search-button:disabled {
+        opacity: 0.62;
+        cursor: wait;
+      }
+
+      .spinner {
+        display: none;
+        width: 17px;
+        height: 17px;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+
+      .search-button.is-loading .spinner {
+        display: block;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .suggestions {
+        display: flex;
+        max-width: 860px;
+        margin: 14px auto 0;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .suggestion {
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .suggestion:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+        background: var(--primary-soft);
+      }
+
+      .conversation {
+        display: grid;
+        max-width: 920px;
+        margin: 38px auto 0;
+        gap: 16px;
+      }
+
+      .message {
+        display: flex;
+        gap: 11px;
+        align-items: flex-start;
+      }
+
+      .message--user {
+        justify-content: flex-end;
+      }
+
+      .message__avatar {
+        display: grid;
+        flex: 0 0 30px;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 10px;
+        color: #fff;
+        background: var(--primary);
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .message__bubble {
+        max-width: min(780px, calc(100% - 42px));
+        padding: 15px 17px;
+        border: 1px solid var(--line);
+        border-radius: 6px 17px 17px 17px;
+        background: var(--surface);
+        box-shadow: 0 8px 24px rgba(28, 39, 67, 0.04);
+      }
+
+      .message--user .message__bubble {
+        border-color: transparent;
+        border-radius: 17px 6px 17px 17px;
+        color: #fff;
+        background: var(--primary);
+        box-shadow: 0 9px 20px rgba(68, 86, 232, 0.18);
+      }
+
+      .message__label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+      }
+
+      .message--user .message__label {
+        color: rgba(255, 255, 255, 0.72);
+      }
+
+      .message__text {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .message--warning .message__bubble {
+        border-color: #efc46d;
+        background: #fff9ec;
+      }
+
+      .typing-dots {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        min-height: 20px;
+      }
+
+      .typing-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--subtle);
+        animation: typing 1.1s infinite ease-in-out;
+      }
+
+      .typing-dots span:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+
+      .typing-dots span:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+
+      @keyframes typing {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.45;
+        }
+        30% {
+          transform: translateY(-4px);
+          opacity: 1;
+        }
+      }
+
+      .results-section {
+        max-width: 920px;
+        margin: 44px auto 0;
+      }
+
+      .results-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+      }
+
+      .results-title {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .results-count {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .empty-state {
+        padding: 52px 24px;
+        border: 1px dashed var(--line-strong);
+        border-radius: 18px;
+        color: var(--muted);
+        text-align: center;
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .empty-state__icon {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 14px;
+        place-items: center;
+        border-radius: 14px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-size: 20px;
+      }
+
+      .empty-state p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .result-list {
+        display: grid;
+        gap: 13px;
+      }
+
+      .result-card {
+        display: block;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        color: inherit;
+        background: var(--surface);
+        box-shadow: 0 10px 30px rgba(28, 39, 67, 0.045);
+        text-decoration: none;
+        transition:
+          transform 0.18s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease;
+      }
+
+      .result-card:hover,
+      .result-card:focus-visible {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 14px 34px rgba(68, 86, 232, 0.1);
+        transform: translateY(-2px);
+      }
+
+      .result-card__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 13px;
+      }
+
+      .result-card__rank {
+        display: inline-grid;
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 9px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .result-card__identity {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .result-card__title {
+        overflow: hidden;
+        margin: 0;
+        font-size: 14px;
+        font-weight: 850;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .result-card__meta {
+        margin: 5px 0 0;
+        color: var(--subtle);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .result-card__score {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+        border-radius: 999px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .result-card__actions {
+        display: flex;
+        margin-top: 15px;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        color: var(--primary);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .result-card__content {
+        margin: 0;
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .error-panel {
+        display: none;
+        max-width: 860px;
+        margin: 20px auto 0;
+        padding: 14px 16px;
+        border-radius: 12px;
+        color: var(--danger);
+        background: var(--danger-soft);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .error-panel.is-visible {
+        display: block;
+      }
+
+      .assistive-status {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      @media (max-width: 680px) {
+        .topbar__inner {
+          min-height: 60px;
+          padding: 0 18px;
+        }
+
+        .brand__logo {
+          width: 82px;
+        }
+
+        .brand__divider,
+        .user-chip__text {
+          display: none;
+        }
+
+        .page {
+          padding: 42px 16px 60px;
+        }
+
+        .prompt-actions,
+        .result-card__head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .search-button {
+          width: 100%;
+        }
+
+        .asset-summary {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .result-card__score {
+          align-self: flex-start;
+        }
+
+        .message__bubble {
+          max-width: calc(100% - 41px);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #0d1220;
+          --surface: #151b2b;
+          --surface-soft: #111827;
+          --text: #eef1f8;
+          --muted: #a4aec0;
+          --subtle: #7f8ba1;
+          --line: #293248;
+          --line-strong: #3b465f;
+          --primary: #8290ff;
+          --primary-strong: #7180f2;
+          --primary-soft: #242d57;
+          --danger: #ff8096;
+          --danger-soft: #40202a;
+        }
+
+        .topbar {
+          background: rgba(13, 18, 32, 0.84);
+        }
+
+        .brand__logo {
+          padding: 3px 5px;
+          border-radius: 6px;
+          background: #fff;
+        }
+
+        .suggestion,
+        .empty-state {
+          background: rgba(21, 27, 43, 0.7);
+        }
+
+        .asset-count {
+          background: rgba(21, 27, 43, 0.78);
+        }
+
+        .message--warning .message__bubble {
+          border-color: #80652e;
+          background: #302817;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="brand">
+          <img
+            class="brand__logo"
+            src="/assets/hyundai-hds-logo.png"
+            alt="현대HDS"
+          />
+          <span class="brand__divider" aria-hidden="true"></span>
+          <span class="brand__label">IDC본부. 문서자산 조회</span>
+        </div>
+        <div class="topbar__actions">
+          <div class="user-chip">
+            <span id="user-avatar" class="user-chip__avatar">사</span>
+            <span class="user-chip__text">
+              <span id="user-name" class="user-chip__name">사용자 확인 중</span>
+              <span id="user-department" class="user-chip__department">—</span>
+            </span>
+          </div>
+          <button id="logout" class="logout-button" type="button">
+            로그아웃
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="hero">
+        <h1>어떤 문서를 찾으시나요?</h1>
+        <p class="hero__description">
+          등록된 문서자산을 자연어로 검색하고 관련 원문과 출처를 확인합니다.
+        </p>
+        <dl
+          id="asset-summary"
+          class="asset-summary"
+          aria-label="자산 유형별 등록 현황"
+        >
+          <div class="asset-count">
+            <dt class="asset-count__label">일반 문서</dt>
+            <dd class="asset-count__value">
+              <span data-asset-count="document">—</span
+              ><span class="asset-count__unit">건</span>
+            </dd>
+          </div>
+          <div class="asset-count">
+            <dt class="asset-count__label">장애 사례</dt>
+            <dd class="asset-count__value">
+              <span data-asset-count="incident">—</span
+              ><span class="asset-count__unit">건</span>
+            </dd>
+          </div>
+          <div class="asset-count">
+            <dt class="asset-count__label">오류 로그</dt>
+            <dd class="asset-count__value">
+              <span data-asset-count="error_trace">—</span
+              ><span class="asset-count__unit">건</span>
+            </dd>
+          </div>
+          <div class="asset-count">
+            <dt class="asset-count__label">소스 코드</dt>
+            <dd class="asset-count__value">
+              <span data-asset-count="source_code">—</span
+              ><span class="asset-count__unit">건</span>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <form id="search-form" class="prompt-panel">
+        <label class="assistive-status" for="query">문서 검색 질문</label>
+        <textarea
+          id="query"
+          class="prompt-input"
+          rows="3"
+          minlength="2"
+          maxlength="2000"
+          placeholder="예: 선택적 복리후생의 의료비 지원 기준을 찾아줘"
+          required
+        ></textarea>
+        <div class="prompt-actions">
+          <p class="prompt-hint">Enter로 검색 · Shift+Enter로 줄바꿈</p>
+          <button id="search-button" class="search-button" type="submit">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="search-button-label">질문하기</span>
+          </button>
+        </div>
+      </form>
+
+      <div class="suggestions" aria-label="추천 검색어">
+        <button class="suggestion" type="button">의료비 선택적복리후생</button>
+        <button class="suggestion" type="button">
+          2027학년도 전형별 모집인원
+        </button>
+        <button class="suggestion" type="button">최근 등록된 문서 내용</button>
+      </div>
+
+      <p id="error-panel" class="error-panel" role="alert"></p>
+
+      <section
+        id="conversation"
+        class="conversation"
+        aria-label="문서 질의응답 대화"
+      >
+        <div class="message message--assistant">
+          <span class="message__avatar" aria-hidden="true">AI</span>
+          <div class="message__bubble">
+            <span class="message__label">문서자산 AI</span>
+            <p class="message__text">
+              등록된 문서를 근거로 답변해 드립니다. 답변 아래 검색 결과를
+              클릭하면 원본 문서를 내려받을 수 있습니다.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="results-section" aria-labelledby="results-title">
+        <div class="results-header">
+          <h2 id="results-title" class="results-title">검색 결과</h2>
+          <span id="results-count" class="results-count"
+            >질문을 입력해 주세요</span
+          >
+        </div>
+        <div id="results">
+          <div class="empty-state">
+            <span class="empty-state__icon" aria-hidden="true">⌕</span>
+            <p>질문과 관련된 문서 청크가<br />출처 정보와 함께 표시됩니다.</p>
+          </div>
+        </div>
+      </section>
+
+      <p
+        id="live-status"
+        class="assistive-status"
+        role="status"
+        aria-live="polite"
+      ></p>
+    </main>
+
+    <script>
+      const form = document.querySelector("#search-form");
+      const queryInput = document.querySelector("#query");
+      const searchButton = document.querySelector("#search-button");
+      const searchButtonLabel = document.querySelector("#search-button-label");
+      const resultsContainer = document.querySelector("#results");
+      const resultsCount = document.querySelector("#results-count");
+      const errorPanel = document.querySelector("#error-panel");
+      const liveStatus = document.querySelector("#live-status");
+      const conversation = document.querySelector("#conversation");
+      const conversationHistory = [];
+
+      async function loadCurrentUser() {
+        const response = await fetch("/api/v1/auth/me", {
+          credentials: "same-origin",
+        });
+
+        if (!response.ok) {
+          window.location.replace("/login");
+          return;
+        }
+
+        const user = await response.json();
+        document.querySelector("#user-name").textContent =
+          `${user.employee_name} (${user.employee_id})`;
+        document.querySelector("#user-department").textContent =
+          user.department || "부서 정보 없음";
+        document.querySelector("#user-avatar").textContent =
+          user.employee_name.slice(0, 1);
+      }
+
+      async function loadAssetCounts() {
+        try {
+          const response = await fetch("/api/v1/assets/stats/counts", {
+            credentials: "same-origin",
+          });
+          if (response.status === 401) {
+            window.location.replace("/login");
+            return;
+          }
+          if (!response.ok) throw new Error("자산 현황 조회 실패");
+
+          const payload = await response.json();
+          document.querySelectorAll("[data-asset-count]").forEach((element) => {
+            const count = payload.counts?.[element.dataset.assetCount] ?? 0;
+            element.textContent = Number(count).toLocaleString("ko-KR");
+          });
+        } catch (error) {
+          document.querySelectorAll("[data-asset-count]").forEach((element) => {
+            element.textContent = "—";
+          });
+          console.warn(error);
+        }
+      }
+
+      function setLoading(isLoading) {
+        searchButton.disabled = isLoading;
+        searchButton.classList.toggle("is-loading", isLoading);
+        searchButtonLabel.textContent = isLoading ? "답변 생성 중" : "질문하기";
+      }
+
+      function showError(message) {
+        errorPanel.textContent = message;
+        errorPanel.classList.toggle("is-visible", Boolean(message));
+      }
+
+      function sourceMeta(result) {
+        const pages = result.page_start
+          ? result.page_end && result.page_end !== result.page_start
+            ? `페이지 ${result.page_start}-${result.page_end}`
+            : `페이지 ${result.page_start}`
+          : "";
+
+        return [
+          result.source_filename,
+          result.version_label && `버전 ${result.version_label}`,
+          pages,
+          result.kind && `유형 ${result.kind}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+
+      function appendMessage(role, text, status = "completed") {
+        const message = document.createElement("div");
+        message.className = `message message--${role}`;
+        if (status === "unavailable") message.classList.add("message--warning");
+
+        if (role === "assistant") {
+          const avatar = document.createElement("span");
+          avatar.className = "message__avatar";
+          avatar.setAttribute("aria-hidden", "true");
+          avatar.textContent = "AI";
+          message.append(avatar);
+        }
+
+        const bubble = document.createElement("div");
+        bubble.className = "message__bubble";
+        const label = document.createElement("span");
+        label.className = "message__label";
+        label.textContent = role === "assistant" ? "문서자산 AI" : "나";
+        const paragraph = document.createElement("p");
+        paragraph.className = "message__text";
+        paragraph.textContent = text;
+        bubble.append(label, paragraph);
+        message.append(bubble);
+        conversation.append(message);
+        message.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return message;
+      }
+
+      function appendThinkingMessage() {
+        const message = document.createElement("div");
+        message.className = "message message--assistant";
+        message.innerHTML =
+          '<span class="message__avatar" aria-hidden="true">AI</span><div class="message__bubble"><span class="message__label">문서를 검색하고 답변을 작성하는 중</span><span class="typing-dots" aria-label="답변 생성 중"><span></span><span></span><span></span></span></div>';
+        conversation.append(message);
+        message.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return message;
+      }
+
+      function createResultCard(result, index) {
+        const article = document.createElement("a");
+        article.className = "result-card";
+        article.href = `/api/v1/assets/${encodeURIComponent(result.asset_id)}/versions/${encodeURIComponent(result.version_id)}/download`;
+        article.setAttribute(
+          "aria-label",
+          `${result.title || "문서"} 원문 다운로드`,
+        );
+
+        const head = document.createElement("div");
+        head.className = "result-card__head";
+
+        const rank = document.createElement("span");
+        rank.className = "result-card__rank";
+        rank.textContent = String(index + 1);
+
+        const identity = document.createElement("div");
+        identity.className = "result-card__identity";
+
+        const title = document.createElement("h3");
+        title.className = "result-card__title";
+        title.textContent = result.title || "제목 없는 문서";
+
+        const meta = document.createElement("p");
+        meta.className = "result-card__meta";
+        meta.textContent = sourceMeta(result) || "출처 정보 없음";
+
+        const score = document.createElement("span");
+        score.className = "result-card__score";
+        score.textContent = `RRF ${(result.rrf_score || 0).toFixed(4)}`;
+
+        const content = document.createElement("p");
+        content.className = "result-card__content";
+        content.textContent = result.content || "표시할 본문이 없습니다.";
+
+        const actions = document.createElement("div");
+        actions.className = "result-card__actions";
+        actions.innerHTML =
+          '<span aria-hidden="true">⇩</span><span>검색 결과 클릭 시 원문 다운로드</span>';
+
+        identity.append(title, meta);
+        head.append(rank, identity, score);
+        article.append(head, content, actions);
+        return article;
+      }
+
+      function renderResults(results) {
+        resultsContainer.replaceChildren();
+        resultsCount.textContent = `${results.length}건`;
+
+        if (results.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "empty-state";
+          empty.innerHTML =
+            '<span class="empty-state__icon" aria-hidden="true">⌕</span><p>검색 결과가 없습니다.<br>다른 표현으로 다시 질문해 주세요.</p>';
+          resultsContainer.append(empty);
+          return;
+        }
+
+        const list = document.createElement("div");
+        list.className = "result-list";
+        results.forEach((result, index) => {
+          list.append(createResultCard(result, index));
+        });
+        resultsContainer.append(list);
+      }
+
+      async function askDocuments(query) {
+        setLoading(true);
+        showError("");
+        resultsCount.textContent = "검색 및 답변 생성 중";
+        liveStatus.textContent =
+          "관련 문서를 검색하고 답변을 생성하고 있습니다.";
+        appendMessage("user", query);
+        const thinkingMessage = appendThinkingMessage();
+
+        try {
+          const response = await fetch("/api/v1/chat", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              query,
+              limit: 8,
+              history: conversationHistory.slice(-8),
+            }),
+          });
+
+          if (response.status === 401) {
+            window.location.replace("/login");
+            return;
+          }
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(
+              typeof payload.detail === "string"
+                ? payload.detail
+                : "문서 답변 생성에 실패했습니다.",
+            );
+          }
+
+          const results = payload.results || [];
+          thinkingMessage.remove();
+          appendMessage(
+            "assistant",
+            payload.answer || "답변을 생성하지 못했습니다.",
+            payload.generation_status,
+          );
+          renderResults(results);
+          conversationHistory.push(
+            { role: "user", content: query },
+            {
+              role: "assistant",
+              content: payload.answer || "답변을 생성하지 못했습니다.",
+            },
+          );
+          liveStatus.textContent = `답변과 검색 결과 ${results.length}건을 표시했습니다.`;
+        } catch (error) {
+          thinkingMessage.remove();
+          const detail = error instanceof Error ? error.message : String(error);
+          showError(detail);
+          appendMessage(
+            "assistant",
+            `요청을 처리하지 못했습니다. ${detail}`,
+            "unavailable",
+          );
+          resultsCount.textContent = "조회 실패";
+          liveStatus.textContent = `조회 실패: ${detail}`;
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const query = queryInput.value.trim();
+        if (query.length >= 2) {
+          queryInput.value = "";
+          askDocuments(query);
+        }
+      });
+
+      queryInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      document.querySelectorAll(".suggestion").forEach((button) => {
+        button.addEventListener("click", () => {
+          queryInput.value = button.textContent.trim();
+          form.requestSubmit();
+        });
+      });
+
+      document.querySelector("#logout").addEventListener("click", async () => {
+        await fetch("/api/v1/auth/logout", {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        window.location.replace("/login");
+      });
+
+      loadCurrentUser();
+      loadAssetCounts();
+      queryInput.focus();
+    </script>
+  </body>
+</html>

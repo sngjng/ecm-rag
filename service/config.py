@@ -35,7 +35,10 @@ class ServerSettings(SettingsModel):
     port: int = Field(default=8300, ge=1, le=65535)
     api_prefix: str = "/api/v1"
     docs_enabled: bool = False
-    max_upload_mb: int = Field(default=100, ge=1)
+    workers: int = Field(default=2, ge=1, le=32)
+    limit_concurrency: int = Field(default=100, ge=1, le=10000)
+    backlog: int = Field(default=256, ge=1, le=65535)
+    max_upload_mb: int = Field(default=5, ge=1)
 
     @field_validator("api_prefix")
     @classmethod
@@ -73,6 +76,10 @@ class EndpointSettings(SettingsModel):
 
 class LlmSettings(EndpointSettings):
     model: str = "gemma-4"
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1200, ge=64, le=8192)
+    context_top_k: int = Field(default=8, ge=1, le=30)
+    max_context_characters: int = Field(default=24000, ge=1000, le=200000)
 
 
 class EmbeddingSettings(EndpointSettings):
@@ -133,7 +140,8 @@ class SolutionSettings(SettingsModel):
 
 class WorkerSettings(SettingsModel):
     poll_seconds: float = Field(default=3.0, ge=0.1)
-    claim_batch_size: int = Field(default=5, ge=1, le=100)
+    claim_batch_size: int = Field(default=1, ge=1, le=100)
+    processes: int = Field(default=2, ge=1, le=32)
     lease_seconds: int = Field(default=900, ge=30)
     max_attempts: int = Field(default=3, ge=1)
     worker_name: str = ""
@@ -153,6 +161,7 @@ class DuplicateDetectionSettings(SettingsModel):
 
 class IngestionSettings(SettingsModel):
     default_lifecycle_status: Literal["draft", "approved"] = "approved"
+    max_pending_jobs: int = Field(default=100, ge=1, le=100000)
     allowed_extensions: dict[str, list[str]] = Field(default_factory=dict)
     duplicate_detection: DuplicateDetectionSettings = Field(
         default_factory=DuplicateDetectionSettings

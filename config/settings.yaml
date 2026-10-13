@@ -8,11 +8,17 @@ runtime:
   python: "3.11"
 
 server:
+  # profile의 문서용 값이며 bin/start.sh 실행 시 ECM_RAG_HOST(기본 0.0.0.0)가 우선한다.
   host: 127.0.0.1
   port: 8300
   api_prefix: /api/v1
   docs_enabled: false
-  max_upload_mb: 100
+  # Uvicorn 프로세스와 프로세스별 동시 요청 상한. 서버 사양에 맞게 환경변수로 조정한다.
+  workers: "${ECM_RAG_API_WORKERS:-2}"
+  limit_concurrency: "${ECM_RAG_API_LIMIT_CONCURRENCY:-100}"
+  backlog: "${ECM_RAG_API_BACKLOG:-256}"
+  # 사용자 1회 업로드 원본 파일 크기 상한(MiB). 모든 profile의 기본값이다.
+  max_upload_mb: 5
 
 paths:
   upload_root: artifacts/uploads
@@ -36,8 +42,14 @@ models:
     api_key: "${RAG_LLM_API_KEY:-}"
     model: "${RAG_LLM_MODEL:-gemma-4}"
     timeout_seconds: 120
+    # 검색 근거만 사용해 답변하도록 생성량과 전달 문맥을 제한한다.
+    temperature: 0.1
+    max_tokens: 1200
+    context_top_k: 8
+    max_context_characters: 24000
   embedding:
     provider: openai_compatible
+    # OpenAI 호환 요청: POST body는 {"model": ..., "input": [...]} 형식이어야 한다.
     base_url: "${RAG_EMBED_URL:-http://127.0.0.1:8200/v1/embeddings}"
     api_key: "${RAG_EMBED_API_KEY:-}"
     model: "${RAG_EMBED_MODEL:-bge-m3}"
@@ -69,6 +81,8 @@ solutions:
 
 ingestion:
   default_lifecycle_status: approved
+  # queued + processing 작업이 이 값 이상이면 신규 접수를 429로 거부해 저장소를 보호한다.
+  max_pending_jobs: 100
   # 기존 문서 후보가 발견되어도 자동 병합하지 않고 업로드 사용자에게 확인받는다.
   duplicate_detection:
     enabled: true
@@ -82,7 +96,9 @@ ingestion:
 
 worker:
   poll_seconds: 3
-  claim_batch_size: 5
+  # 여러 worker가 공평하게 작업을 가져가도록 프로세스당 한 건씩 선점한다.
+  claim_batch_size: 1
+  processes: "${ECM_RAG_WORKER_PROCESSES:-2}"
   lease_seconds: 900
   max_attempts: 3
   worker_name: "${RAG_WORKER_NAME:-}"

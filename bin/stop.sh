@@ -73,7 +73,23 @@ stop_process() {
 
 # 신규 접수를 먼저 차단한 다음 Worker를 종료한다.
 stop_process "API" "service.api:app" "$RUN_DIR/api.pid"
-stop_process "Worker" "service.worker" "$RUN_DIR/worker.pid"
+
+# 다중 worker PID 파일과 이전 버전의 단일 PID 파일을 모두 안전하게 처리한다.
+shopt -s nullglob
+worker_pid_files=("$RUN_DIR"/worker-*.pid)
+shopt -u nullglob
+if [[ -f "$RUN_DIR/worker.pid" ]]; then
+  worker_pid_files+=("$RUN_DIR/worker.pid")
+fi
+if (( ${#worker_pid_files[@]} == 0 )); then
+  echo "Worker 중지 상태 (PID 파일 없음)"
+else
+  worker_number=0
+  for worker_pid_file in "${worker_pid_files[@]}"; do
+    ((worker_number += 1))
+    stop_process "Worker $worker_number" "service.worker" "$worker_pid_file"
+  done
+fi
 
 echo
 echo "ECM-RAG 종료 완료"

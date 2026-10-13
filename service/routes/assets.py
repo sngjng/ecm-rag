@@ -5,10 +5,13 @@ router는 HTTP 상태 코드와 입력 DTO 변환을 담당하고 실제 SQL은 
 """
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from service.dependencies import authorize
+from service.config import get_settings
 from service.repositories import assets
 from service.schemas import AssetCreate, AssetType, AssetUpdate, RelationCreate
 
@@ -33,6 +36,13 @@ def list_assets(
     return {"items": assets.list_assets(
         asset_type=asset_type, system_name=system_name, limit=limit, offset=offset
     )}
+
+
+@router.get("/stats/counts")
+def count_assets_by_type():
+    """검색 화면에 표시할 활성 문서자산 수를 유형별로 반환한다."""
+    counts = assets.count_assets_by_type()
+    return {"counts": counts, "total": sum(counts.values())}
 
 
 @router.get("/{asset_id}")
@@ -71,6 +81,32 @@ def list_versions(asset_id: UUID):
         {key: value for key, value in version.items() if key != "source_path"}
         for version in versions
     ]}
+
+
+@router.get("/{asset_id}/versions/{version_id}/download")
+def download_version(asset_id: UUID, version_id: UUID):
+    """인증된 사용자에게 등록 당시 원본 파일을 첨부 형태로 전송한다.
+
+    DB의 ``source_path``도 신뢰하지 않고 실제 경로를 해석한 뒤 설정된 업로드 루트
+    내부인지 확인한다. 따라서 DB 값이 변조돼도 서버의 다른 파일은 내려받을 수 없다.
+    """
+    version = assets.get_version(asset_id, version_id)
+    if not version:
+        raise HTTPException(404, "문서 버전을 찾을 수 없습니다")
+
+    upload_root = get_settings().paths.upload_root.resolve()
+    try:
+        source = Path(version["source_path"]).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise HTTPException(404, "원본 파일을 찾을 수 없습니다") from None
+    if not source.is_file() or not source.is_relative_to(upload_root):
+        raise HTTPException(403, "허용되지 않은 원본 파일 경로입니다")
+
+    return FileResponse(
+        source,
+        filename=version["source_filename"],
+        media_type="application/octet-stream",
+    )
 
 
 @router.get("/{asset_id}/upload-history")

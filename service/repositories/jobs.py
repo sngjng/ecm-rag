@@ -32,6 +32,17 @@ def get_job(job_id: UUID | str) -> dict[str, Any] | None:
         ).fetchone()
 
 
+def count_pending_jobs() -> int:
+    """현재 접수됐지만 아직 종료되지 않은 작업 수를 반환한다."""
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT count(*) AS count
+                 FROM ingestion_jobs
+                WHERE status IN ('queued', 'processing')"""
+        ).fetchone()
+        return int(row["count"])
+
+
 def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[str, Any]]:
     """대기 작업 또는 lease가 만료된 작업을 여러 워커 사이에서 원자적으로 확보한다."""
     with connect() as conn:
@@ -63,11 +74,27 @@ def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[s
                )
                UPDATE ingestion_jobs AS j
                SET status='processing', worker_id=%s, locked_at=now(), heartbeat_at=now(),
-                   attempts=j.attempts+1, started_at=coalesce(j.started_at, now()), updated_at=now()
+                   attempts=j.attempts+1, started_at=coalesce(j.started_at, now()),
+                   report=jsonb_set(j.report, '{processing_stage}', '"preparing"'::jsonb, true),
+                   updated_at=now()
                FROM candidates c WHERE j.job_id=c.job_id
                RETURNING j.*""",
             (lease_seconds, limit, worker_id),
         ).fetchall()
+
+
+def update_stage(job_id: UUID | str, worker_id: str, stage: str) -> bool:
+    """현재 worker가 수행 중인 처리 단계를 polling 응답용 report에 기록한다."""
+    with connect() as conn:
+        row = conn.execute(
+            """UPDATE ingestion_jobs
+                  SET report=jsonb_set(report, '{processing_stage}', to_jsonb(%s::text), true),
+                      heartbeat_at=now(), updated_at=now()
+                WHERE job_id=%s AND status='processing' AND worker_id=%s
+                RETURNING job_id""",
+            (stage, UUID(str(job_id)), worker_id),
+        ).fetchone()
+        return row is not None
 
 
 def heartbeat(job_id: UUID | str, worker_id: str) -> bool:
@@ -176,6 +203,7 @@ def complete_job(
                         symbol["start_line"], symbol["end_line"],
                     ),
                 )
+        report["processing_stage"] = "completed"
         conn.execute(
             """UPDATE asset_versions SET indexed_at=now(), parser_name=%s, metadata=%s
                WHERE version_id=%s""",
@@ -196,6 +224,11 @@ def fail_job(job_id: UUID | str, worker_id: str, detail: str) -> str:
             """UPDATE ingestion_jobs
                SET status=CASE WHEN attempts < max_attempts THEN 'queued' ELSE 'failed' END,
                    error_detail=%s, worker_id=NULL, locked_at=NULL,
+                   report=jsonb_set(
+                     report, '{processing_stage}',
+                     to_jsonb(CASE WHEN attempts < max_attempts THEN 'retry_wait' ELSE 'failed' END::text),
+                     true
+                   ),
                    completed_at=CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END,
                    updated_at=now()
                WHERE job_id=%s AND worker_id=%s

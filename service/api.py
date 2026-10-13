@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from service.config import get_settings
-from service.routes import assets, auth, ingestion, search, system
+from service.routes import assets, auth, chat, external, ingestion, search, system
 
 
 # get_settings()는 프로세스 안에서 캐시된다. 운영 중 profile이 임의로 바뀌지 않게 하고,
@@ -27,6 +27,10 @@ app.include_router(auth.router, prefix=settings.server.api_prefix)
 app.include_router(assets.router, prefix=settings.server.api_prefix)
 app.include_router(ingestion.router, prefix=settings.server.api_prefix)
 app.include_router(search.router, prefix=settings.server.api_prefix)
+app.include_router(chat.router, prefix=settings.server.api_prefix)
+# external router만 의도적으로 로그인 dependency가 없다. 내부망 전용이라는 배포 전제를
+# 바꾸는 경우 이 줄을 그대로 공개하지 말고 인증 gateway/API key 계층을 먼저 추가한다.
+app.include_router(external.router, prefix=settings.server.api_prefix)
 app.mount("/assets", StaticFiles(directory=settings.paths.web_root / "assets"), name="web-assets")
 
 
@@ -44,3 +48,15 @@ def index():
 def login_page():
     """사내 인증 모듈과 연결되는 로그인 화면을 반환한다."""
     return FileResponse(settings.paths.web_root / "login.html", media_type="text/html")
+
+
+@app.get("/spl_upload.html", include_in_schema=False)
+def simplified_upload_page():
+    """기본정보와 원본파일만 받는 간편 업로드 화면을 반환한다."""
+    return FileResponse(settings.paths.web_root / "spl_upload.html", media_type="text/html")
+
+
+@app.get("/search.html", include_in_schema=False)
+def search_page():
+    """인증 사용자가 문서자산을 자연어로 조회하는 화면을 반환한다."""
+    return FileResponse(settings.paths.web_root / "search.html", media_type="text/html")

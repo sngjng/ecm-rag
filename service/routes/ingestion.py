@@ -51,6 +51,13 @@ async def upload(
     사용자가 직접 입력하지 않는다.
     """
     settings = get_settings()
+    if jobs.count_pending_jobs() >= settings.ingestion.max_pending_jobs:
+        await file.close()
+        raise HTTPException(
+            status_code=429,
+            detail="처리 대기 작업이 많습니다. 잠시 후 다시 시도해 주세요.",
+            headers={"Retry-After": str(max(1, int(settings.worker.poll_seconds)))},
+        )
     lifecycle_status = lifecycle_status or settings.ingestion.default_lifecycle_status
     if duplicate_action not in {"check", "new_asset", "new_version"}:
         raise HTTPException(422, "duplicate_action이 올바르지 않습니다")
@@ -87,6 +94,7 @@ async def upload(
     target = directory / name
     digest, size = hashlib.sha256(), 0
     created_asset_id: UUID | None = None
+    upload_lock = None
 
     def cleanup_upload() -> None:
         """DB 등록 전후 오류가 발생했을 때 파일과 신규 Asset을 보상 정리한다."""
@@ -116,6 +124,16 @@ async def upload(
             raise HTTPException(422, "빈 파일")
         digest_value = digest.hexdigest()
         resolved_title = title or name
+
+        # 여러 API 프로세스가 같은 파일을 동시에 등록하려는 경우 DB session lock으로
+        # 한 요청만 통과시킨다. 기다리게 하지 않고 409를 반환해 worker 고갈을 막는다.
+        upload_lock = assets.try_acquire_upload_lock(digest_value)
+        if upload_lock is None:
+            raise HTTPException(
+                status_code=409,
+                detail="동일한 파일의 등록 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+                headers={"Retry-After": "2"},
+            )
 
         # 사용자가 UUID를 직접 입력하지 않아도 되도록 서버가 파일 해시·파일명·제목을
         # 비교해 기존 Asset 후보를 찾는다. 후보가 있어도 자동 병합하지 않고 파일을
@@ -206,6 +224,8 @@ async def upload(
         cleanup_upload()
         raise
     finally:
+        if upload_lock is not None:
+            assets.release_upload_lock(upload_lock)
         await file.close()
 
 
@@ -216,7 +236,17 @@ def get_job(job_id: UUID):
     if not result:
         raise HTTPException(404, "처리 작업을 찾을 수 없습니다")
     hidden = {"source_path", "worker_id", "locked_at", "heartbeat_at"}
-    return {key: value for key, value in result.items() if key not in hidden}
+    response = {key: value for key, value in result.items() if key not in hidden}
+    report = result.get("report") or {}
+    default_stage = {
+        "queued": "queued",
+        "processing": "preparing",
+        "completed": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+    }.get(result["status"], result["status"])
+    response["processing_stage"] = report.get("processing_stage", default_stage)
+    return response
 
 
 @router.post("/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)

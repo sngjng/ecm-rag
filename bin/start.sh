@@ -27,6 +27,8 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set +a
 fi
 
+# 0.0.0.0은 다른 사내 PC의 /api/v1/external/answer 호출을 받기 위한 기본값이다.
+# 인터넷/비신뢰 대역에는 직접 노출하지 말고 방화벽 또는 reverse proxy ACL을 적용한다.
 API_HOST="${ECM_RAG_HOST:-0.0.0.0}"
 API_PORT="${ECM_RAG_PORT:-8300}"
 PYTHON_BIN="${ECM_RAG_PYTHON:-$PROJECT_ROOT/.venv/bin/python}"
@@ -39,6 +41,18 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "ECM_RAG_PYTHON 또는 .venv 경로를 확인하세요." >&2
   exit 1
 fi
+
+# 프로세스 수와 접속 보호 값은 YAML/profile/환경변수 병합 결과를 그대로 사용한다.
+read -r API_WORKERS API_LIMIT_CONCURRENCY API_BACKLOG WORKER_PROCESSES < <(
+  "$PYTHON_BIN" -c 'from service.config import get_settings; s=get_settings(); print(s.server.workers, s.server.limit_concurrency, s.server.backlog, s.worker.processes)'
+)
+for value_name in API_WORKERS API_LIMIT_CONCURRENCY API_BACKLOG WORKER_PROCESSES; do
+  value="${!value_name}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value < 1 )); then
+    echo "오류: $value_name 설정은 1 이상의 숫자여야 합니다: $value" >&2
+    exit 1
+  fi
+done
 
 echo "PostgreSQL 필수 migration 확인 중..."
 if ! "$PYTHON_BIN" -m scripts.apply_migrations; then
@@ -88,9 +102,18 @@ start_process() {
 }
 
 API_PID_FILE="$RUN_DIR/api.pid"
-WORKER_PID_FILE="$RUN_DIR/worker.pid"
 API_LOG="$LOG_DIR/api.log"
 WORKER_LOG="$LOG_DIR/worker.log"
+
+# 단일 worker.pid를 사용하던 이전 버전이 실행 중이면 중복 worker 생성을 막는다.
+if [[ -f "$RUN_DIR/worker.pid" ]]; then
+  legacy_worker_pid="$(<"$RUN_DIR/worker.pid")"
+  if is_expected_process "$legacy_worker_pid" "service.worker"; then
+    echo "오류: 이전 방식의 Worker가 실행 중입니다. bin/stop.sh 실행 후 다시 시작해 주세요." >&2
+    exit 1
+  fi
+  rm -f -- "$RUN_DIR/worker.pid"
+fi
 
 api_was_running=false
 if [[ -f "$API_PID_FILE" ]] && is_expected_process "$(<"$API_PID_FILE")" "service.api:app"; then
@@ -98,21 +121,41 @@ if [[ -f "$API_PID_FILE" ]] && is_expected_process "$(<"$API_PID_FILE")" "servic
 fi
 
 if ! start_process "API" "service.api:app" "$API_PID_FILE" "$API_LOG" \
-  "$PYTHON_BIN" -m uvicorn service.api:app --host "$API_HOST" --port "$API_PORT"; then
+  "$PYTHON_BIN" -m uvicorn service.api:app --host "$API_HOST" --port "$API_PORT" \
+  --workers "$API_WORKERS" --limit-concurrency "$API_LIMIT_CONCURRENCY" \
+  --backlog "$API_BACKLOG"; then
   exit 1
 fi
 
-if ! start_process "Worker" "service.worker" "$WORKER_PID_FILE" "$WORKER_LOG" \
-  "$PYTHON_BIN" -m service.worker; then
-  if [[ "$api_was_running" == false ]] && [[ -f "$API_PID_FILE" ]]; then
-    api_pid="$(<"$API_PID_FILE")"
-    if is_expected_process "$api_pid" "service.api:app"; then
-      kill -TERM "$api_pid" 2>/dev/null || true
-    fi
-    rm -f -- "$API_PID_FILE"
+started_worker_pid_files=()
+for ((worker_index = 1; worker_index <= WORKER_PROCESSES; worker_index++)); do
+  worker_pid_file="$RUN_DIR/worker-$worker_index.pid"
+  worker_was_running=false
+  if [[ -f "$worker_pid_file" ]] && is_expected_process "$(<"$worker_pid_file")" "service.worker"; then
+    worker_was_running=true
   fi
-  exit 1
-fi
+  if ! start_process "Worker $worker_index" "service.worker" "$worker_pid_file" "$WORKER_LOG" \
+    "$PYTHON_BIN" -m service.worker; then
+    for started_pid_file in "${started_worker_pid_files[@]}"; do
+      started_pid="$(<"$started_pid_file")"
+      if is_expected_process "$started_pid" "service.worker"; then
+        kill -TERM "$started_pid" 2>/dev/null || true
+      fi
+      rm -f -- "$started_pid_file"
+    done
+    if [[ "$api_was_running" == false ]] && [[ -f "$API_PID_FILE" ]]; then
+      api_pid="$(<"$API_PID_FILE")"
+      if is_expected_process "$api_pid" "service.api:app"; then
+        kill -TERM "$api_pid" 2>/dev/null || true
+      fi
+      rm -f -- "$API_PID_FILE"
+    fi
+    exit 1
+  fi
+  if [[ "$worker_was_running" == false ]]; then
+    started_worker_pid_files+=("$worker_pid_file")
+  fi
+done
 
 ready=false
 if command -v curl >/dev/null 2>&1; then
@@ -138,5 +181,7 @@ echo
 echo "ECM-RAG 기동 완료"
 echo "  로그인: http://127.0.0.1:$API_PORT/login"
 echo "  Profile: ${RAG_PROFILE:-config 기본값}"
+echo "  API workers: $API_WORKERS (프로세스별 동시 요청 상한: $API_LIMIT_CONCURRENCY)"
+echo "  Ingestion workers: $WORKER_PROCESSES"
 echo "  API 로그: $API_LOG"
 echo "  Worker 로그: $WORKER_LOG"

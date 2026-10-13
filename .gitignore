@@ -6,3 +6,5 @@ htmlcov/
 .venv/
 .env
 artifacts/
+*.zip
+.package-staging-*/

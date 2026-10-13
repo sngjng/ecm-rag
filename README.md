@@ -44,7 +44,9 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 FastAPI
   ├─ /api/v1/assets       Asset CRUD
   ├─ /api/v1/ingestion    파일/작업 접수
-  └─ /api/v1/search       ECM 자산 통합 검색
+  ├─ /api/v1/search       ECM 자산 통합 검색
+  ├─ /api/v1/chat         검색 근거 기반 LLM 질의응답
+  └─ /api/v1/assets/.../download  인증된 원본 다운로드
         │
         ▼
 PostgreSQL queue ◀──── 별도 Python worker
@@ -60,6 +62,9 @@ PostgreSQL queue ◀──── 별도 Python worker
 [WORKLOG_PGVECTOR.md](WORKLOG_PGVECTOR.md)를 참고하세요. 업로드 화면의 입력 필드부터
 호출 API, DB queue, worker와 검색까지 이어지는 코드 리뷰용 업무 흐름은
 [SCREEN_API_WORKFLOW.md](SCREEN_API_WORKFLOW.md)에 정리되어 있습니다.
+
+회사망 PC 최초 설치, 연동 설정, 기동·점검·백업·장애 대응 및 소스 디버깅 절차는
+[운영자 매뉴얼](OPERATIONS_MANUAL.md)을 기준 문서로 사용하세요.
 
 ## 설치
 
@@ -121,8 +126,23 @@ bin/stop.sh
 - PID: `artifacts/run/`
 - 로그: `artifacts/logs/api.log`, `artifacts/logs/worker.log`
 - 선택 환경변수: `ECM_RAG_HOST`, `ECM_RAG_PORT`, `ECM_RAG_PYTHON`, `ECM_RAG_STOP_TIMEOUT`
+- 동시성 환경변수: `ECM_RAG_API_WORKERS`, `ECM_RAG_API_LIMIT_CONCURRENCY`,
+  `ECM_RAG_API_BACKLOG`, `ECM_RAG_WORKER_PROCESSES`
 - `.env`가 있으면 시작 시 자동으로 읽습니다.
 - 시작 전에 `sql/002_session_auth_audit.sql`을 idempotent하게 자동 적용합니다.
+- 원본 파일은 `server.max_upload_mb` 설정에 따라 현재 1건당 최대 5MiB까지 허용합니다.
+
+### 다중 사용자 부하 보호
+
+기본값은 API worker 2개, 문서 처리 worker 2개입니다. API 프로세스마다 동시 요청을
+100건으로 제한하고 대기 socket backlog는 256으로 제한합니다. PostgreSQL의
+`queued + processing` 작업이 100건에 도달하면 신규 업로드를 HTTP 429와
+`Retry-After` 헤더로 거부하여 파일 저장소와 처리 서버를 보호합니다.
+
+문서 처리 worker는 작업을 한 건씩 가져가며 PostgreSQL `FOR UPDATE SKIP LOCKED`로
+서로 다른 작업을 안전하게 나눠 처리합니다. 동일 SHA-256 원본이 동시에 접수되면
+PostgreSQL advisory lock으로 한 요청만 등록 단계에 진입시키고 나머지는 재시도 가능한
+HTTP 409로 응답합니다. 서버 사양에 따라 YAML 기본값 또는 위 환경변수를 조정합니다.
 
 ### 개별 실행
 
@@ -142,8 +162,8 @@ curl http://127.0.0.1:8300/health/ready
 ```
 
 로그인 화면은 `http://서버:8300/login`, 업로드 화면은 로그인 후
-`http://서버:8300/`에서 사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`을
-추가 적용해야 합니다.
+`http://서버:8300/`, 문서 질의응답 화면은 `http://서버:8300/search.html`에서
+사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`을 추가 적용해야 합니다.
 
 로컬·테스트 profile의 화면 확인 계정은 `test / test`입니다. 운영
 `rockylinux9` profile에서는 이 계정이 비활성화되고 Java 사내 인증만 사용합니다.
@@ -159,8 +179,50 @@ curl -b session.cookie \
 
 검색은 식별자 exact/substring, PostgreSQL FTS, pgvector cosine 후보를 RRF로 합친 뒤
 YAML에서 활성화한 경우에만 로컬 reranker를 적용합니다. 최신·승인 버전 우선 정책도
-YAML로 조정할 수 있습니다. 검색 결과는 ECM 자산과 해당 청크의 근거 정보를 반환하며,
-답변 생성이 필요한 응용 서비스는 이 결과를 별도의 LLM 컨텍스트로 사용할 수 있습니다.
+YAML로 조정할 수 있습니다. `/api/v1/chat`은 이 검색 결과를 로컬 OpenAI 호환 LLM에
+전달해 출처 번호가 포함된 답변과 근거 검색 결과를 함께 반환합니다. LLM 장애 시에도
+검색 결과는 유지되며 `generation_status=unavailable`로 상태를 구분합니다.
+
+LLM 연결 정보와 생성 제한은 코드가 아닌 `config/settings.yaml` 및 환경변수로 관리합니다.
+
+```bash
+export RAG_LLM_URL='http://LLM서버:포트/v1'
+export RAG_LLM_MODEL='운영-모델명'
+export RAG_LLM_API_KEY='필요한 경우에만 설정'
+```
+
+검색 결과의 문서 카드를 클릭하면 인증 쿠키를 확인한 뒤 해당 버전의 원본을 다운로드합니다.
+서버는 DB 경로를 그대로 신뢰하지 않고 `paths.upload_root` 내부 파일인지 재검증합니다.
+
+### 내부망 외부 시스템 질의응답 API
+
+`POST /api/v1/external/answer`는 세션 쿠키나 API 키 없이 내부 시스템에서 호출하는
+연동 endpoint입니다. Rocky Linux profile은 `0.0.0.0`으로 수신하며 실제 접근 범위는
+내부망 방화벽과 reverse proxy에서 제한합니다. JSON 객체, JSON 문자열, 일반 문자열을
+모두 받을 수 있고 PostgreSQL/pgvector 검색 결과를 근거로 LLM 답변을 반환합니다.
+
+```bash
+# JSON 객체: 검색 필터와 결과 제한도 함께 전달 가능
+curl -X POST http://서버주소:8300/api/v1/external/answer \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"장애 대응 절차를 알려줘","limit":5}'
+
+# 일반 문자열
+curl -X POST http://서버주소:8300/api/v1/external/answer \
+  -H 'Content-Type: text/plain; charset=utf-8' \
+  --data-binary '장애 대응 절차를 알려줘'
+```
+
+응답에는 `answer`, `generation_status`, `results`가 포함됩니다. `results`는 답변에 사용한
+문서 청크와 자산·버전·페이지 등의 출처 정보입니다.
+
+로그인부터 검색까지 한 번에 확인하려면 API 호출 예제를 실행합니다. 비밀번호는 명령행
+인자 대신 환경변수 또는 보안 입력으로 전달합니다.
+
+```bash
+ECM_RAG_PASSWORD=test .venv/bin/python scripts/query_uploaded_documents.py \
+  "의료비 선택적복리후생" --asset-type document --limit 3
+```
 
 ## 사내 Java 로그인 계약
 

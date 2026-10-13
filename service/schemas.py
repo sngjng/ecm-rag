@@ -81,3 +81,16 @@ class SearchRequest(BaseModel):
     product: str | None = Field(default=None, max_length=200)
     include_obsolete: bool = False
     limit: int | None = Field(default=None, ge=1, le=200)
+
+
+class ChatHistoryMessage(BaseModel):
+    """LLM에 전달할 최근 대화 한 건이다."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatRequest(SearchRequest):
+    """문서 검색과 근거 기반 답변 생성을 한 번에 요청한다."""
+
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
