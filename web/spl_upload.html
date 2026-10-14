@@ -782,6 +782,94 @@
         animation: none;
       }
 
+      .upload-confirm-dialog {
+        width: min(540px, calc(100vw - 32px));
+        padding: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        color: var(--text);
+        background: var(--surface);
+        box-shadow: 0 30px 90px rgba(16, 24, 40, 0.28);
+      }
+
+      .upload-confirm-dialog::backdrop {
+        background: rgba(10, 16, 30, 0.58);
+        backdrop-filter: blur(5px);
+      }
+
+      .upload-confirm-dialog__body {
+        padding: 28px;
+      }
+
+      .upload-confirm-dialog h2 {
+        margin: 0 0 8px;
+        font-size: 21px;
+      }
+
+      .upload-confirm-dialog__description {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .upload-confirm-dialog__fields {
+        display: grid;
+        gap: 16px;
+      }
+
+      .upload-confirm-dialog__file {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface-soft);
+      }
+
+      .upload-confirm-dialog__file-label {
+        flex: 0 0 auto;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .upload-confirm-dialog__file-name {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 750;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .upload-confirm-dialog__error {
+        display: none;
+        margin: 14px 0 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        color: var(--danger);
+        background: var(--danger-soft);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .upload-confirm-dialog__error.is-visible {
+        display: block;
+      }
+
+      .upload-confirm-dialog__actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 9px;
+        padding: 18px 28px;
+        border-top: 1px solid var(--line);
+        background: var(--surface-soft);
+      }
+
       .duplicate-dialog {
         width: min(620px, calc(100vw - 32px));
         padding: 0;
@@ -936,6 +1024,7 @@
         }
 
         .actions,
+        .upload-confirm-dialog__actions,
         .duplicate-dialog__actions {
           align-items: stretch;
           flex-direction: column;
@@ -1201,6 +1290,83 @@
       </div>
 
       <dialog
+        id="upload-confirm-dialog"
+        class="upload-confirm-dialog"
+        aria-labelledby="upload-confirm-title"
+        aria-describedby="upload-confirm-description"
+      >
+        <form id="upload-confirm-form" method="dialog">
+          <div class="upload-confirm-dialog__body">
+            <h2 id="upload-confirm-title">업로드 정보를 확인해 주세요</h2>
+            <p
+              id="upload-confirm-description"
+              class="upload-confirm-dialog__description"
+            >
+              선택한 자산유형과 제목이 맞는지 확인하고, 필요한 경우 바로 수정할
+              수 있습니다.
+            </p>
+
+            <div class="upload-confirm-dialog__fields">
+              <div>
+                <label for="confirm-asset-type"
+                  >자산유형 <span class="required">*</span></label
+                >
+                <select id="confirm-asset-type" required>
+                  <option value="document">일반 문서</option>
+                  <option value="incident">장애 사례</option>
+                  <option value="error_trace">오류 로그</option>
+                  <option value="source_code">소스 코드</option>
+                </select>
+              </div>
+
+              <div>
+                <label for="confirm-title"
+                  >제목 <span class="required">*</span></label
+                >
+                <input
+                  id="confirm-title"
+                  type="text"
+                  maxlength="300"
+                  required
+                />
+              </div>
+
+              <div class="upload-confirm-dialog__file">
+                <span class="upload-confirm-dialog__file-label">원본파일</span>
+                <span
+                  id="confirm-file-name"
+                  class="upload-confirm-dialog__file-name"
+                ></span>
+              </div>
+            </div>
+
+            <p
+              id="upload-confirm-error"
+              class="upload-confirm-dialog__error"
+              role="alert"
+            ></p>
+          </div>
+
+          <div class="upload-confirm-dialog__actions">
+            <button
+              id="upload-confirm-cancel"
+              class="dialog-button"
+              type="button"
+            >
+              돌아가서 수정
+            </button>
+            <button
+              id="upload-confirm-submit"
+              class="dialog-button dialog-button--primary"
+              type="submit"
+            >
+              확인 후 업로드
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog
         id="processing-modal"
         class="processing-modal"
         data-state="queued"
@@ -1305,6 +1471,16 @@
       const statusBadge = document.querySelector("#status-badge");
       const errorBox = document.querySelector("#error-box");
       const message = document.querySelector("#message");
+      const uploadConfirmDialog = document.querySelector(
+        "#upload-confirm-dialog",
+      );
+      const uploadConfirmForm = document.querySelector("#upload-confirm-form");
+      const confirmAssetType = document.querySelector("#confirm-asset-type");
+      const confirmTitle = document.querySelector("#confirm-title");
+      const confirmFileName = document.querySelector("#confirm-file-name");
+      const uploadConfirmError = document.querySelector(
+        "#upload-confirm-error",
+      );
       const processingModal = document.querySelector("#processing-modal");
       const processingTitle = document.querySelector("#processing-title");
       const processingDescription = document.querySelector(
@@ -1595,6 +1771,41 @@
         buttonLabel.textContent = isLoading ? label : "업로드하고 처리 시작";
       }
 
+      function resetUploadScreen() {
+        // 완료 모달은 그대로 두고 그 뒤의 입력 화면만 초기화한다. 사용자는 완료 결과와
+        // 작업 ID를 확인한 뒤 모달을 닫으면 곧바로 다음 문서를 등록할 수 있다.
+        form.reset();
+        uploadConfirmForm.reset();
+        titleEdited = false;
+
+        // file input은 form.reset()으로 비워지므로 선택 파일 표시도 함께 초기화한다.
+        showSelectedFile(null);
+        updateAssetType();
+        dropzone.classList.remove("is-dragging");
+
+        // 이전 업로드의 중복 후보와 확인창 입력값이 다음 요청에 남지 않도록 정리한다.
+        duplicateCandidates = [];
+        candidateList.replaceChildren();
+        duplicateNotice.textContent = "";
+        confirmFileName.textContent = "";
+        uploadConfirmError.textContent = "";
+        uploadConfirmError.classList.remove("is-visible");
+
+        // 처리 완료 정보는 완료 모달에서 제공하므로 사이드 상태창과 파이프라인은
+        // 최초 대기 상태로 되돌린다.
+        statusCard.classList.remove("is-visible");
+        statusBadge.dataset.state = "queued";
+        statusBadge.textContent = stateLabels.queued;
+        document.querySelector("#status-job").textContent = "—";
+        document.querySelector("#status-stage").textContent = "—";
+        document.querySelector("#status-chunks").textContent = "—";
+        errorBox.textContent = "";
+        errorBox.classList.remove("is-visible");
+        setPipelineState("queued", "queued");
+        message.textContent =
+          "업로드가 완료되어 다음 문서를 등록할 수 있도록 초기화했습니다.";
+      }
+
       async function readResponse(response) {
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
@@ -1663,6 +1874,58 @@
         hideProcessingModal();
         duplicateDialog.showModal();
         message.textContent = "기존 문서 후보를 확인해 주세요.";
+      }
+
+      function showUploadConfirmation() {
+        if (!form.reportValidity()) {
+          return;
+        }
+
+        const file = fileInput.files[0];
+        if (!showSelectedFile(file)) {
+          return;
+        }
+
+        confirmAssetType.value = assetType.value;
+        confirmTitle.value = titleInput.value.trim();
+        confirmFileName.textContent = file.name;
+        uploadConfirmError.textContent = "";
+        uploadConfirmError.classList.remove("is-visible");
+
+        uploadConfirmDialog.showModal();
+        confirmTitle.focus();
+      }
+
+      function applyUploadConfirmation() {
+        const title = confirmTitle.value.trim();
+        const file = fileInput.files[0];
+        const selectedType = confirmAssetType.value;
+        const rule = fileRules[selectedType] || fileRules.document;
+        const extension = file
+          ? `.${file.name.split(".").pop().toLowerCase()}`
+          : "";
+
+        if (!title) {
+          uploadConfirmError.textContent = "제목을 입력해 주세요.";
+          uploadConfirmError.classList.add("is-visible");
+          confirmTitle.focus();
+          return;
+        }
+
+        if (!file || !rule.accept.split(",").includes(extension)) {
+          uploadConfirmError.textContent =
+            "선택한 자산유형에서 지원하지 않는 파일 형식입니다. 자산유형을 다시 선택해 주세요.";
+          uploadConfirmError.classList.add("is-visible");
+          confirmAssetType.focus();
+          return;
+        }
+
+        assetType.value = selectedType;
+        titleInput.value = title;
+        titleEdited = true;
+        updateAssetType();
+        uploadConfirmDialog.close();
+        submitUpload();
       }
 
       async function submitUpload(
@@ -1764,6 +2027,9 @@
 
             if (["completed", "failed", "cancelled"].includes(state.status)) {
               finished = true;
+              if (state.status === "completed") {
+                resetUploadScreen();
+              }
               break;
             }
           }
@@ -1818,8 +2084,20 @@
 
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        submitUpload();
+        showUploadConfirmation();
       });
+
+      uploadConfirmForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        applyUploadConfirmation();
+      });
+
+      document
+        .querySelector("#upload-confirm-cancel")
+        .addEventListener("click", () => {
+          uploadConfirmDialog.close();
+          titleInput.focus();
+        });
 
       document
         .querySelector("#duplicate-cancel")
