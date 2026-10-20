@@ -34,6 +34,7 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 - 장애 이력: 증상·원인·조치·결과를 구조화하고 의미 검색용 문장을 별도 생성
 - 에러 로그·스택 트레이스: 에러코드 exact 검색과 frame 위치 검색
 - Python/Java/SQL/JavaScript/Shell/YAML: AST 또는 파일 단위 코드 검색
+- Java JAR: CFR 디컴파일 후 package/class/method 심볼과 벡터 검색
 
 ## 실행 구조
 
@@ -99,7 +100,16 @@ export RAG_AUTH_COMMAND='/srv/ecm-rag/bin/company-auth-wrapper'
 export RAG_RERANK_MODEL_PATH='/srv/models/bge-reranker-v2-m3'
 export RAG_DOCLING_ARTIFACTS='/srv/models/docling'
 export RAG_DRM_COMMAND='/srv/drm/bin/decrypt-wrapper'
+export RAG_JAVA_COMMAND='java'
+export RAG_CFR_JAR_PATH='/srv/ecm-rag/tools/cfr-0.152.jar'
 ```
+
+JAR 업로드는 Python 패키지를 추가로 설치하지 않습니다. JDK의 `java` 실행 파일과
+별도로 반입한 CFR JAR가 필요합니다. 업로드 화면에서 자산유형을 `소스 코드`로 선택하면
+`.jar`를 접수할 수 있으며, worker가 클래스를 실행하지 않고 디컴파일한 Java 소스를
+클래스·메서드 단위로 임베딩합니다. 질문에 Java stack trace를 붙여 넣으면 검색기가
+`package + class + method`를 `rag.code_symbols`와 먼저 정확 매칭한 뒤 FTS·pgvector
+결과와 결합합니다.
 
 - 공통값: `config/settings.yaml`
 - 로컬 개발: `config/profiles/local.yaml`
@@ -129,7 +139,8 @@ bin/stop.sh
 - 동시성 환경변수: `ECM_RAG_API_WORKERS`, `ECM_RAG_API_LIMIT_CONCURRENCY`,
   `ECM_RAG_API_BACKLOG`, `ECM_RAG_WORKER_PROCESSES`
 - `.env`가 있으면 시작 시 자동으로 읽습니다.
-- 시작 전에 `sql/002_session_auth_audit.sql`을 idempotent하게 자동 적용합니다.
+- 시작 전에 `sql/002_session_auth_audit.sql`과 `003_code_symbol_stack_lookup.sql`을
+  idempotent하게 자동 적용합니다.
 - 원본 파일은 `server.max_upload_mb` 설정에 따라 현재 1건당 최대 5MiB까지 허용합니다.
 
 ### 다중 사용자 부하 보호
@@ -163,7 +174,8 @@ curl http://127.0.0.1:8300/health/ready
 
 로그인 화면은 `http://서버:8300/login`, 업로드 화면은 로그인 후
 `http://서버:8300/`, 문서 질의응답 화면은 `http://서버:8300/search.html`에서
-사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`을 추가 적용해야 합니다.
+사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`과
+`sql/003_code_symbol_stack_lookup.sql`을 추가 적용해야 합니다.
 
 로컬·테스트 profile의 화면 확인 계정은 `test / test`입니다. 운영
 `rockylinux9` profile에서는 이 계정이 비활성화되고 Java 사내 인증만 사용합니다.

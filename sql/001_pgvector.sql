@@ -184,6 +184,8 @@ CREATE TABLE IF NOT EXISTS rag.code_symbols (
   end_line integer NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_symbols_lookup ON rag.code_symbols(symbol_name, class_name);
+CREATE INDEX IF NOT EXISTS idx_symbols_stack_lookup
+  ON rag.code_symbols(package_name, class_name, symbol_name);
 CREATE INDEX IF NOT EXISTS idx_symbols_name_trgm ON rag.code_symbols USING gin(symbol_name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_symbols_file_line ON rag.code_symbols(file_path, start_line, end_line);
 

@@ -2,11 +2,14 @@
 from __future__ import annotations
 import hashlib
 import math
+from collections.abc import Callable
 import httpx
 from service.config import get_settings
 
 
-def embed(texts: list[str]) -> list[list[float]]:
+def embed(
+    texts: list[str], progress: Callable[[int, int], None] | None = None
+) -> list[list[float]]:
     """문자열 목록을 설정된 차원의 embedding 벡터로 변환한다.
 
     test profile의 deterministic_stub은 같은 입력에 항상 같은 벡터를 만들어 DB/검색
@@ -25,6 +28,8 @@ def embed(texts: list[str]) -> list[list[float]]:
                       for index in range(settings.dimension)]
             norm = math.sqrt(sum(value * value for value in vector)) or 1.0
             vectors.append([value / norm for value in vector])
+        if progress:
+            progress(len(texts), len(texts))
         return vectors
     if settings.provider != 'openai_compatible':
         raise RuntimeError(f'지원하지 않는 embedding provider: {settings.provider}')
@@ -51,4 +56,6 @@ def embed(texts: list[str]) -> list[list[float]]:
                         f'{settings.model} 응답은 유한한 {settings.dimension}차원 벡터여야 합니다'
                     )
                 results.append(vector)
+            if progress:
+                progress(min(start + len(batch), len(texts)), len(texts))
     return results

@@ -128,6 +128,18 @@ class DrmSettings(SettingsModel):
         return self
 
 
+class JarDecompilerSettings(SettingsModel):
+    """JAR 디컴파일 실행 정책과 압축 해제 자원 상한."""
+
+    backend: Literal["cfr"] = "cfr"
+    java_command: str = "java"
+    cfr_jar_path: str = ""
+    timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    max_class_files: int = Field(default=2000, ge=1, le=100000)
+    max_uncompressed_mb: int = Field(default=200, ge=1, le=10240)
+    max_java_file_kb: int = Field(default=2048, ge=64, le=102400)
+
+
 class SolutionSettings(SettingsModel):
     document_parser: Literal["docling"] = "docling"
     ocr: Literal["easyocr", "rapidocr", "disabled"] = "easyocr"
@@ -136,6 +148,7 @@ class SolutionSettings(SettingsModel):
     )
     docling: DoclingSettings = Field(default_factory=DoclingSettings)
     drm: DrmSettings = Field(default_factory=DrmSettings)
+    jar_decompiler: JarDecompilerSettings = Field(default_factory=JarDecompilerSettings)
 
 
 class WorkerSettings(SettingsModel):

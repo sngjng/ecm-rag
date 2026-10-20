@@ -1433,7 +1433,7 @@
                 name="file"
                 id="file"
                 required
-                accept=".pdf,.docx,.txt,.md,.log,.py,.java,.sql,.js,.sh,.yml,.yaml"
+                accept=".pdf,.docx,.txt,.md,.log,.py,.java,.jar,.sql,.js,.sh,.yml,.yaml"
               />
               <div id="drop-prompt">
                 <span class="dropzone__icon" aria-hidden="true">
@@ -1778,6 +1778,9 @@
         preparing: "처리 작업 준비",
         decrypting: "보안·DRM 확인",
         parsing: "문서 분석 및 OCR",
+        inspecting_jar: "JAR 구조·안전성 검사",
+        decompiling_jar: "JAR 클래스 디컴파일",
+        parsing_jar: "Java 클래스·메서드 분석",
         embedding: "임베딩 생성",
         saving: "검색 인덱스 저장",
         completed: "처리 완료",
@@ -1810,6 +1813,18 @@
         parsing: [
           "문서를 분석하고 있습니다",
           "본문, 표와 페이지 구조를 추출하고 필요한 경우 OCR을 수행합니다.",
+        ],
+        inspecting_jar: [
+          "JAR 구조를 확인하고 있습니다",
+          "클래스 수, 압축 해제 크기와 안전하지 않은 경로를 검사합니다.",
+        ],
+        decompiling_jar: [
+          "JAR 클래스를 디컴파일하고 있습니다",
+          "CFR가 바이트코드를 검색 가능한 Java 소스로 복원하고 있습니다.",
+        ],
+        parsing_jar: [
+          "Java 심볼을 분석하고 있습니다",
+          "패키지, 클래스와 메서드를 검색 단위로 변환하고 있습니다.",
         ],
         embedding: [
           "임베딩을 생성하고 있습니다",
@@ -1888,7 +1903,7 @@
         processingWindow.dataset.state = state;
         processingWindow.dataset.terminal = String(terminal);
         processingTitle.textContent = copy[0];
-        processingDescription.textContent = data.error || copy[1];
+        processingDescription.textContent = data.error || data.detail || copy[1];
         processingJob.textContent = data.jobId
           ? `작업 ${data.jobId.slice(0, 8)}…`
           : stateLabels[state] || state;
@@ -1916,8 +1931,8 @@
           label: "TXT, LOG, Markdown · 최대 5 MB",
         },
         source_code: {
-          accept: ".py,.java,.sql,.js,.sh,.yml,.yaml,.md,.txt",
-          label: "PY, JAVA, SQL, JS, SH, YAML · 최대 5 MB",
+          accept: ".py,.java,.jar,.sql,.js,.sh,.yml,.yaml,.md,.txt",
+          label: "PY, JAVA, JAR, SQL, JS, SH, YAML · 최대 5 MB",
         },
       };
 
@@ -1976,7 +1991,14 @@
         const activeIndex =
           state === "uploading" || state === "queued" || stage === "retry_wait"
             ? 0
-            : ["preparing", "decrypting", "parsing"].includes(stage)
+            : [
+                  "preparing",
+                  "decrypting",
+                  "parsing",
+                  "inspecting_jar",
+                  "decompiling_jar",
+                  "parsing_jar",
+                ].includes(stage)
               ? 1
               : stage === "embedding"
                 ? 2
@@ -2179,13 +2201,14 @@
             versionId: result.version_id,
             jobId: result.job_id,
           };
-          message.textContent = `접수 완료. 작업 ${result.job_id}의 처리를 기다리고 있습니다.`;
+          message.textContent = result.message ||
+            `접수 완료. 작업 ${result.job_id}의 처리를 기다리고 있습니다.`;
           renderStatus(result.status || "queued", identifiers);
 
-          // 2단계: worker가 비동기로 처리하므로 3초 간격으로 최대 12분간 상태를 조회한다.
+          // 2단계: 대형 JAR도 추적할 수 있도록 3초 간격으로 최대 60분간 상태를 조회한다.
           // queued → processing → completed가 정상 경로이며 재시도 소진 시 failed가 된다.
           let finished = false;
-          for (let attempt = 0; attempt < 240; attempt += 1) {
+          for (let attempt = 0; attempt < 1200; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 3000));
             const statusResponse = await fetch(
               `/api/v1/ingestion/jobs/${result.job_id}`,
@@ -2208,10 +2231,15 @@
             renderStatus(state.status, {
               ...identifiers,
               stage: state.processing_stage,
-              chunkCount: state.chunk_count,
+              detail: state.progress_detail,
+              chunkCount:
+                state.total_items && state.status === "processing"
+                  ? `${state.processed_items || 0} / ${state.total_items}`
+                  : state.chunk_count,
               error: state.error_detail,
             });
-            message.textContent = `현재 처리 상태: ${stateLabels[state.status] || state.status}`;
+            message.textContent = state.progress_detail ||
+              `현재 처리 상태: ${stateLabels[state.status] || state.status}`;
 
             if (["completed", "failed", "cancelled"].includes(state.status)) {
               finished = true;

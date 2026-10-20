@@ -106,6 +106,31 @@ def generate_answer(
         if not isinstance(answer, str) or not answer.strip():
             raise KeyError("empty answer")
         return answer.strip()
-    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-        logger.warning("LLM answer generation failed: %s", type(exc).__name__)
+    except httpx.HTTPStatusError as exc:
+        # OpenAI 호환 서버(Ollama/vLLM)는 모델 미존재, context 초과, 지원하지 않는
+        # 옵션 등을 모두 4xx로 반환한다. 응답 본문을 버리면 운영자가 원인을 구분할
+        # 수 없으므로 비밀 요청 본문은 기록하지 않고 서버의 오류 응답만 제한해서 남긴다.
+        response_text = exc.response.text.replace("\r", " ").replace("\n", " ")[:2000]
+        logger.warning(
+            "LLM answer generation failed: HTTPStatusError status=%s url=%s response=%s",
+            exc.response.status_code,
+            exc.request.url,
+            response_text or "<empty>",
+        )
+        raise LlmGenerationError(
+            f"LLM 답변 서버가 HTTP {exc.response.status_code} 오류를 반환했습니다"
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "LLM answer generation failed: %s detail=%s",
+            type(exc).__name__,
+            str(exc)[:1000],
+        )
+        raise LlmGenerationError("LLM 답변 서버에 연결할 수 없습니다") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(
+            "LLM answer generation failed: invalid_response error=%s detail=%s",
+            type(exc).__name__,
+            str(exc)[:1000],
+        )
         raise LlmGenerationError("LLM 답변 서버에 연결할 수 없거나 응답 형식이 올바르지 않습니다") from exc

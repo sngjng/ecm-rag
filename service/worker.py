@@ -14,10 +14,13 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Callable
 
 from service.config import get_settings
 from service.drm import decrypt
 from service.embedding import embed
+from service.jar_parser import parse_jar
+from service.logging_setup import configure_logging
 from service.parsers import (
     Item, parse_code, parse_docx, parse_incident, parse_logs, parse_pdf, parse_text,
 )
@@ -71,7 +74,12 @@ def _add_asset_context(items: list[Item], job: dict) -> list[Item]:
     return items
 
 
-def _parse(job: dict, source: Path, output: Path) -> tuple[list[Item], dict]:
+def _parse(
+    job: dict,
+    source: Path,
+    output: Path,
+    progress: Callable[[str, str, int | None, int | None], None] | None = None,
+) -> tuple[list[Item], dict]:
     """Asset 유형과 확장자에 맞는 파서를 선택한다.
 
     PDF만 Docling/OCR의 무거운 의존성을 지연 import하고, TXT·로그·소스는 가벼운
@@ -93,6 +101,16 @@ def _parse(job: dict, source: Path, output: Path) -> tuple[list[Item], dict]:
     if asset_type == "error_trace":
         return parse_logs(source)
     if asset_type == "source_code":
+        if suffix == ".jar":
+            return parse_jar(
+                source,
+                output,
+                job.get("repository") or "",
+                job.get("branch") or "",
+                job.get("logical_path") or job["source_filename"],
+                get_settings().solutions.jar_decompiler,
+                progress,
+            )
         return parse_code(
             source,
             job.get("repository") or "",
@@ -125,22 +143,76 @@ def process(job_id: str, worker_id: str) -> None:
     heartbeat_interval = max(10.0, settings.worker.lease_seconds / 3)
     try:
         with lease_heartbeat(job_id, worker_id, heartbeat_interval):
+            def update_progress(
+                stage: str,
+                detail: str,
+                processed_items: int | None = None,
+                total_items: int | None = None,
+            ) -> None:
+                jobs.update_progress(
+                    job_id,
+                    worker_id,
+                    stage=stage,
+                    detail=detail,
+                    processed_items=processed_items,
+                    total_items=total_items,
+                )
+                logger.info(
+                    "job progress job=%s stage=%s detail=%s processed=%s total=%s",
+                    job_id,
+                    stage,
+                    detail,
+                    processed_items,
+                    total_items,
+                )
+
             output.mkdir(parents=True, exist_ok=True)
-            jobs.update_stage(job_id, worker_id, "decrypting")
+            update_progress("decrypting", "DRM 적용 여부와 원본 파일을 확인하고 있습니다.")
             source = decrypt(raw, clear)
-            jobs.update_stage(job_id, worker_id, "parsing")
-            items, report = _parse(job, source, output)
+            update_progress("parsing", "자산 유형에 맞는 파서를 준비하고 있습니다.")
+            items, report = _parse(job, source, output, update_progress)
             if not items:
                 raise ValueError("검색 가능한 내용을 추출하지 못했습니다")
             _add_asset_context(items, job)
-            jobs.update_stage(job_id, worker_id, "embedding")
-            vectors = embed([item.embedding_text or item.text for item in items])
+            update_progress(
+                "embedding",
+                f"검색 벡터를 생성하고 있습니다: 0/{len(items)}",
+                0,
+                len(items),
+            )
+
+            last_embedding_bucket = -1
+
+            def embedding_progress(processed: int, total: int) -> None:
+                nonlocal last_embedding_bucket
+                # 대형 JAR에서도 DB 진행상황 갱신이 embedding 요청 수만큼 발생하지 않도록
+                # 5% 단위(완료 포함)로 제한한다.
+                bucket = 20 if processed >= total else int(processed * 20 / max(total, 1))
+                if bucket == last_embedding_bucket:
+                    return
+                last_embedding_bucket = bucket
+                update_progress(
+                    "embedding",
+                    f"검색 벡터를 생성하고 있습니다: {processed}/{total}",
+                    processed,
+                    total,
+                )
+
+            vectors = embed(
+                [item.embedding_text or item.text for item in items],
+                progress=embedding_progress,
+            )
             report.update({
                 "parser": settings.solutions.document_parser,
                 "embedding_model": settings.models.embedding.model,
                 "profile": settings.runtime.environment,
             })
-            jobs.update_stage(job_id, worker_id, "saving")
+            update_progress(
+                "saving",
+                f"PostgreSQL과 pgvector에 {len(items)}개 청크를 저장하고 있습니다.",
+                len(items),
+                len(items),
+            )
             jobs.complete_job(
                 job_id, worker_id, items, vectors, report, settings.models.embedding.model
             )
@@ -179,7 +251,7 @@ def run(poll_seconds: float | None = None) -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--poll", type=float, default=None)
     arguments = parser.parse_args()

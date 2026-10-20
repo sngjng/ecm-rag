@@ -1,0 +1,2 @@
+# Linux에서 직접 실행하는 shell script는 Windows checkout/ZIP에서도 LF를 유지한다.
+*.sh text eol=lf

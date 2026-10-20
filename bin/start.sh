@@ -123,7 +123,7 @@ fi
 if ! start_process "API" "service.api:app" "$API_PID_FILE" "$API_LOG" \
   "$PYTHON_BIN" -m uvicorn service.api:app --host "$API_HOST" --port "$API_PORT" \
   --workers "$API_WORKERS" --limit-concurrency "$API_LIMIT_CONCURRENCY" \
-  --backlog "$API_BACKLOG"; then
+  --backlog "$API_BACKLOG" --log-config "$PROJECT_ROOT/config/logging.yaml"; then
   exit 1
 fi
 

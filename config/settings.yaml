@@ -78,6 +78,16 @@ solutions:
     enabled: false
     command: "${RAG_DRM_COMMAND:-}"
     timeout_seconds: 120
+  # JAR의 바이트코드는 실행하지 않고 CFR로 Java 소스 형태로 복원한다. CFR 파일은
+  # 폐쇄망 반입 후 환경 변수로 지정하며, 아래 상한은 ZIP bomb와 과도한 임베딩을 막는다.
+  jar_decompiler:
+    backend: cfr
+    java_command: "${RAG_JAVA_COMMAND:-java}"
+    cfr_jar_path: "${RAG_CFR_JAR_PATH:-}"
+    timeout_seconds: 300
+    max_class_files: 2000
+    max_uncompressed_mb: 200
+    max_java_file_kb: 2048
 
 ingestion:
   default_lifecycle_status: approved
@@ -92,7 +102,7 @@ ingestion:
     document: [.pdf, .docx, .txt, .md]
     incident: [.txt, .md]
     error_trace: [.log, .txt]
-    source_code: [.py, .java, .sql, .js, .sh, .yml, .yaml]
+    source_code: [.py, .java, .jar, .sql, .js, .sh, .yml, .yaml]
 
 worker:
   poll_seconds: 3

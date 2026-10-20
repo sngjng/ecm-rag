@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- 소스코드 자산의 JAR 업로드와 CFR 기반 Java 디컴파일 추가
+- 디컴파일 결과를 package/class/method 심볼 및 pgvector 청크로 저장
+- Java stack trace 직접 입력 또는 저장된 오류 코드·예외명을 code symbol과 연결하는 검색 lane 추가
+- JAR 경로 이탈·암호화·압축 해제 크기·클래스 수 제한과 운영 설정/문서 추가
+- JAR 검사·디컴파일·심볼 분석·임베딩 건수를 작업 API, 업로드 모달과 worker 로그에 표시
+- 동일 원본의 이전 처리 작업이 실패하면 중복 Asset을 만들지 않고 기존 job을 자동 재접수
+- API 접근 로그와 Worker 애플리케이션 로그에 밀리초 단위 타임스탬프를 공통 적용
+- JAR 디컴파일 소스 분석을 순수 Python 안전 분석기로 분리해 tree-sitter ABI 충돌에
+  의한 Worker segmentation fault 방지
+- 오류 이벤트에서 Java 내부 클래스 심볼을 연결하는 SQL의 psycopg 리터럴 `%`
+  이스케이프 오류 수정
+- psycopg가 SQL 내부 설명 주석의 `%`까지 placeholder로 해석해 발생하던 UTF-8
+  디코딩 오류 수정
+- Ollama/vLLM의 HTTP 4xx 응답 상태·URL·제한된 오류 본문을 기록해 모델명, context
+  한도, 요청 옵션 오류를 운영 로그에서 구분할 수 있도록 개선
+
 ## 0.3.0 - 2026-10-08
 
 - API 키 입력을 제거하고 사내 Java 로그인 모듈 연동형 서버 세션 인증 추가

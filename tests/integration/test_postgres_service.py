@@ -237,3 +237,53 @@ def test_upload_requires_confirmation_before_adding_existing_asset_version(clien
     assert history.status_code == 200
     assert len(history.json()["items"]) == 2
     assert history.json()["items"][0]["employee_name"] == "테스트 사용자"
+
+
+def test_exact_failed_upload_reuses_and_requeues_existing_job(client, auth_headers):
+    """파싱 실패한 동일 원본 재업로드는 중복 Asset 대신 기존 job을 재접수한다."""
+    payload = {
+        "asset_type": "source_code",
+        "title": "재처리 대상 JAR",
+        "repository": "builder.jar",
+    }
+    first = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data=payload,
+        files={"file": ("builder.jar", b"same-test-jar-content", "application/java-archive")},
+    )
+    assert first.status_code == 202, first.text
+    original = first.json()
+
+    from service.db import connect
+    with connect() as connection:
+        connection.execute(
+            """UPDATE ingestion_jobs
+                  SET status='failed', attempts=max_attempts, error_detail='CFR 설정 오류',
+                      completed_at=now(), updated_at=now()
+                WHERE job_id=%s""",
+            (original["job_id"],),
+        )
+
+    retried = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data=payload,
+        files={"file": ("builder.jar", b"same-test-jar-content", "application/java-archive")},
+    )
+    assert retried.status_code == 202, retried.text
+    body = retried.json()
+    assert body["reused_existing_upload"] is True
+    assert body["asset_id"] == original["asset_id"]
+    assert body["version_id"] == original["version_id"]
+    assert body["job_id"] == original["job_id"]
+    assert body["status"] == "queued"
+
+    with connect() as connection:
+        counts = connection.execute(
+            """SELECT
+                 (SELECT count(*) FROM assets WHERE title='재처리 대상 JAR') AS assets,
+                 (SELECT count(*) FROM asset_versions WHERE asset_id=%s) AS versions""",
+            (original["asset_id"],),
+        ).fetchone()
+    assert counts == {"assets": 1, "versions": 1}

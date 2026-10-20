@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>IDC본부. 문서자산 업로드</title>
+    <title>문서 업로드</title>
     <style>
       :root {
         color-scheme: light;
@@ -1091,7 +1091,7 @@
             alt="현대HDS"
           />
           <span class="brand__divider" aria-hidden="true"></span>
-          <span class="brand__label">IDC본부. 문서자산 업로드</span>
+          <span class="brand__label">문서 업로드</span>
         </div>
         <div class="topbar__actions">
           <div class="user-chip">
@@ -1111,7 +1111,7 @@
     <main class="page">
       <section class="hero">
         <div>
-          <h1>IDC본부. 문서자산 업로드</h1>
+          <h1>문서 업로드</h1>
           <p class="hero__description">
             문서의 기본정보와 원본파일을 등록하면 검색 가능한 지식자산으로
             변환합니다.
@@ -1178,7 +1178,7 @@
                 id="file"
                 name="file"
                 type="file"
-                accept=".pdf,.docx,.txt,.md"
+                accept=".pdf,.docx,.txt,.md,.log,.py,.java,.jar,.sql,.js,.sh,.yml,.yaml"
                 required
               />
               <span id="drop-prompt">
@@ -1519,6 +1519,9 @@
         preparing: "처리 작업 준비",
         decrypting: "보안·DRM 확인",
         parsing: "문서 분석 및 OCR",
+        inspecting_jar: "JAR 구조·안전성 검사",
+        decompiling_jar: "JAR 클래스 디컴파일",
+        parsing_jar: "Java 클래스·메서드 분석",
         embedding: "임베딩 생성",
         saving: "검색 인덱스 저장",
         completed: "처리 완료",
@@ -1551,6 +1554,18 @@
         parsing: [
           "문서를 분석하고 있습니다",
           "본문, 표와 페이지 구조를 추출하고 필요한 경우 OCR을 수행합니다.",
+        ],
+        inspecting_jar: [
+          "JAR 구조를 확인하고 있습니다",
+          "클래스 수, 압축 해제 크기와 안전하지 않은 경로를 검사합니다.",
+        ],
+        decompiling_jar: [
+          "JAR 클래스를 디컴파일하고 있습니다",
+          "CFR가 바이트코드를 검색 가능한 Java 소스로 복원하고 있습니다.",
+        ],
+        parsing_jar: [
+          "Java 심볼을 분석하고 있습니다",
+          "패키지, 클래스와 메서드를 검색 단위로 변환하고 있습니다.",
         ],
         embedding: [
           "임베딩을 생성하고 있습니다",
@@ -1623,7 +1638,7 @@
         processingModal.dataset.state = state;
         processingModal.dataset.terminal = String(terminal);
         processingTitle.textContent = copy[0];
-        processingDescription.textContent = data.error || copy[1];
+        processingDescription.textContent = data.error || data.detail || copy[1];
         processingJob.textContent = data.jobId
           ? `작업 ${data.jobId.slice(0, 8)}…`
           : processingStageLabels[stage];
@@ -1649,8 +1664,8 @@
           label: "TXT, LOG, Markdown · 최대 5 MB",
         },
         source_code: {
-          accept: ".py,.java,.sql,.js,.sh,.yml,.yaml,.md,.txt",
-          label: "PY, JAVA, SQL, JS, SH, YAML · 최대 5 MB",
+          accept: ".py,.java,.jar,.sql,.js,.sh,.yml,.yaml,.md,.txt",
+          label: "PY, JAVA, JAR, SQL, JS, SH, YAML · 최대 5 MB",
         },
       };
 
@@ -1730,7 +1745,14 @@
         const activeIndex =
           state === "uploading" || state === "queued" || stage === "retry_wait"
             ? 0
-            : ["preparing", "decrypting", "parsing"].includes(stage)
+            : [
+                  "preparing",
+                  "decrypting",
+                  "parsing",
+                  "inspecting_jar",
+                  "decompiling_jar",
+                  "parsing_jar",
+                ].includes(stage)
               ? 1
               : stage === "embedding"
                 ? 2
@@ -1990,10 +2012,15 @@
           const identifiers = {
             jobId: result.job_id,
           };
+          if (result.message) {
+            message.textContent = result.message;
+          }
           renderStatus(result.status || "queued", identifiers);
 
           let finished = false;
-          for (let attempt = 0; attempt < 240; attempt += 1) {
+          // 대형 JAR의 디컴파일·심볼 분석·임베딩은 일반 문서보다 오래 걸릴 수 있어
+          // 3초 간격으로 최대 60분까지 화면에서 자동 확인한다.
+          for (let attempt = 0; attempt < 1200; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
             const statusResponse = await fetch(
@@ -2020,10 +2047,15 @@
             renderStatus(state.status, {
               ...identifiers,
               stage: state.processing_stage,
-              chunkCount: state.chunk_count,
+              detail: state.progress_detail,
+              chunkCount:
+                state.total_items && state.status === "processing"
+                  ? `${state.processed_items || 0} / ${state.total_items}`
+                  : state.chunk_count,
               error: state.error_detail,
             });
-            message.textContent = `현재 처리 상태: ${stateLabels[state.status] || state.status}`;
+            message.textContent = state.progress_detail ||
+              `현재 처리 상태: ${stateLabels[state.status] || state.status}`;
 
             if (["completed", "failed", "cancelled"].includes(state.status)) {
               finished = true;

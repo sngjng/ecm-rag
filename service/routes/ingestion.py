@@ -135,6 +135,34 @@ async def upload(
                 headers={"Retry-After": "2"},
             )
 
+        # 동일 바이트의 이전 작업이 실패했거나 아직 진행 중이면 새 Asset/Version을
+        # 만들지 않는다. 실패 작업은 기존 원본으로 재접수하고, 대기·처리 중 작업은
+        # 같은 job_id를 돌려줘 화면이 기존 작업을 계속 추적하게 한다. completed일 때만
+        # 아래의 일반 중복 확인 흐름으로 진행한다.
+        exact_job = assets.find_exact_content_job(asset_type, digest_value)
+        if duplicate_action == "check" and exact_job and exact_job["status"] != "completed":
+            was_retried = False
+            if exact_job["status"] in {"failed", "cancelled"}:
+                resumed = jobs.retry_job(exact_job["job_id"])
+                if resumed:
+                    exact_job["status"] = resumed["status"]
+                    was_retried = True
+            if exact_job["status"] in {"queued", "processing"}:
+                cleanup_upload()
+                return {
+                    "asset_id": exact_job["asset_id"],
+                    "version_id": exact_job["version_id"],
+                    "job_id": exact_job["job_id"],
+                    "status": exact_job["status"],
+                    "size": size,
+                    "reused_existing_upload": True,
+                    "message": (
+                        "기존 실패 작업을 재접수했습니다."
+                        if was_retried
+                        else "동일 원본의 기존 처리 작업을 계속 확인합니다."
+                    ),
+                }
+
         # 사용자가 UUID를 직접 입력하지 않아도 되도록 서버가 파일 해시·파일명·제목을
         # 비교해 기존 Asset 후보를 찾는다. 후보가 있어도 자동 병합하지 않고 파일을
         # 정리한 뒤 409 응답으로 사용자 확인을 요청한다.
@@ -246,6 +274,10 @@ def get_job(job_id: UUID):
         "cancelled": "cancelled",
     }.get(result["status"], result["status"])
     response["processing_stage"] = report.get("processing_stage", default_stage)
+    # 화면이 report 내부 구조를 알 필요 없이 현재 작업 설명과 진행량을 표시하게 한다.
+    response["progress_detail"] = report.get("progress_detail")
+    response["processed_items"] = report.get("processed_items")
+    response["total_items"] = report.get("total_items")
     return response
 
 

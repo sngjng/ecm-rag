@@ -215,6 +215,30 @@ def find_duplicate_candidates(
     return rows
 
 
+def find_exact_content_job(asset_type: str, sha256: str) -> dict[str, Any] | None:
+    """동일 원본의 가장 최근 Version과 처리 작업을 반환한다.
+
+    처리 실패 원본을 정상 등록 문서 후보로 오인하지 않도록 중복 후보 판별보다 먼저
+    사용한다. sha256 advisory lock을 보유한 route에서 호출하므로 같은 원본의 재접수
+    판단도 요청 간 직렬화된다.
+    """
+    with connect() as conn:
+        return conn.execute(
+            """SELECT a.asset_id, v.version_id, v.source_path, v.source_filename,
+                      j.job_id, j.status, j.attempts, j.max_attempts,
+                      j.error_detail, j.report
+                 FROM asset_versions v
+                 JOIN assets a USING(asset_id)
+                 JOIN ingestion_jobs j USING(version_id)
+                WHERE a.deleted_at IS NULL
+                  AND a.asset_type=%s
+                  AND v.sha256=%s
+                ORDER BY v.created_at DESC
+                LIMIT 1""",
+            (asset_type, sha256),
+        ).fetchone()
+
+
 def update_asset(asset_id: UUID | str, payload: AssetUpdate) -> dict[str, Any] | None:
     """Pydantic의 ``exclude_unset``을 이용해 요청에 포함된 필드만 동적으로 갱신한다."""
     changes = payload.model_dump(exclude_unset=True)

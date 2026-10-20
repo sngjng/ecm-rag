@@ -15,7 +15,10 @@ from service.config import ROOT
 from service.db import connect
 
 
-MIGRATIONS = (ROOT / "sql" / "002_session_auth_audit.sql",)
+MIGRATIONS = (
+    ROOT / "sql" / "002_session_auth_audit.sql",
+    ROOT / "sql" / "003_code_symbol_stack_lookup.sql",
+)
 
 
 def inherit_rag_environment(pid: int) -> None:

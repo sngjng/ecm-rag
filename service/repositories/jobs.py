@@ -85,14 +85,36 @@ def claim_jobs(worker_id: str, *, limit: int, lease_seconds: int) -> list[dict[s
 
 def update_stage(job_id: UUID | str, worker_id: str, stage: str) -> bool:
     """현재 worker가 수행 중인 처리 단계를 polling 응답용 report에 기록한다."""
+    return update_progress(
+        job_id, worker_id, stage=stage, detail="", processed_items=0, total_items=0
+    )
+
+
+def update_progress(
+    job_id: UUID | str,
+    worker_id: str,
+    *,
+    stage: str,
+    detail: str | None = None,
+    processed_items: int | None = None,
+    total_items: int | None = None,
+) -> bool:
+    """단계와 세부 진행량을 report JSON에 병합해 화면 polling에 제공한다."""
+    progress: dict[str, Any] = {
+        "processing_stage": stage,
+        "processed_items": max(0, processed_items) if processed_items is not None else None,
+        "total_items": max(0, total_items) if total_items is not None else None,
+    }
+    if detail is not None:
+        progress["progress_detail"] = detail[:1000]
     with connect() as conn:
         row = conn.execute(
             """UPDATE ingestion_jobs
-                  SET report=jsonb_set(report, '{processing_stage}', to_jsonb(%s::text), true),
+                  SET report=report || %s,
                       heartbeat_at=now(), updated_at=now()
                 WHERE job_id=%s AND status='processing' AND worker_id=%s
                 RETURNING job_id""",
-            (stage, UUID(str(job_id)), worker_id),
+            (Jsonb(progress), UUID(str(job_id)), worker_id),
         ).fetchone()
         return row is not None
 
@@ -244,6 +266,12 @@ def retry_job(job_id: UUID | str) -> dict[str, Any] | None:
         return conn.execute(
             """UPDATE ingestion_jobs SET status='queued', attempts=0, worker_id=NULL,
                    locked_at=NULL, heartbeat_at=NULL, error_detail=NULL, completed_at=NULL,
+                   report=report || jsonb_build_object(
+                     'processing_stage', 'queued',
+                     'progress_detail', '기존 실패 작업을 다시 처리 대기열에 등록했습니다.',
+                     'processed_items', NULL,
+                     'total_items', NULL
+                   ),
                    updated_at=now()
                WHERE job_id=%s AND status IN ('failed','cancelled') RETURNING *""",
             (UUID(str(job_id)),),

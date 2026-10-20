@@ -17,6 +17,31 @@ from service.embedding import embed
 
 
 TOKEN = re.compile(r"[\w.$/-]{3,}", re.UNICODE)
+STACK_FRAME = re.compile(
+    r"^\s*(?:at\s+)?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\.([\w$<>]+)\s*\(",
+    re.MULTILINE,
+)
+
+
+def _stack_frame_keys(query: str) -> list[tuple[str, list[str], list[str]]]:
+    """질문에 붙여 넣은 Java stack frame을 package/class/method 검색 키로 바꾼다."""
+    keys: list[tuple[str, list[str], list[str]]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in STACK_FRAME.finditer(query):
+        qualified_class, method = match.groups()
+        if (qualified_class, method) in seen:
+            continue
+        seen.add((qualified_class, method))
+        package, _, class_part = qualified_class.rpartition(".")
+        # 디컴파일 소스의 inner class 표현은 AST에 따라 Outer 또는 Inner로 저장될 수 있다.
+        class_names = list(dict.fromkeys((class_part, class_part.split("$")[0], class_part.split("$")[-1])))
+        method_names = [method]
+        if method in {"<init>", "<clinit>"}:
+            method_names.extend(class_names)
+        keys.append((package, class_names, list(dict.fromkeys(method_names))))
+        if len(keys) >= 8:
+            break
+    return keys
 
 
 @lru_cache(maxsize=2)
@@ -81,6 +106,30 @@ def search(
             "SELECT set_config('hnsw.ef_search', %s, true)",
             (str(settings.database.vector.hnsw_ef_search),),
         )
+        # Lane 0: 질문에 Java stack trace가 있으면 code_symbols의 package/class/method를
+        # 직접 연결한다. 줄 번호가 달라져도 같은 디컴파일 심볼을 찾으며, 이 결과도 다른
+        # lexical/vector lane과 RRF로 결합되어 LLM 근거에 포함된다.
+        for package, class_names, method_names in _stack_frame_keys(query):
+            rows = conn.execute(
+                """SELECT c.chunk_id
+                   FROM code_symbols s JOIN chunks c USING(chunk_id)
+                   JOIN assets a ON a.asset_id=c.asset_id
+                   JOIN asset_versions v ON v.version_id=c.version_id
+                   WHERE s.package_name=%s
+                     AND s.class_name=ANY(%s)
+                     AND s.symbol_name=ANY(%s)"""
+                + filter_sql
+                + " ORDER BY c.created_at DESC LIMIT %s",
+                (
+                    package,
+                    class_names,
+                    method_names,
+                    *filter_values,
+                    retrieval.exact_top_k,
+                ),
+            ).fetchall()
+            lanes.append([row["chunk_id"] for row in rows])
+
         # Lane 1: 에러코드, 예외명, 파일명, 클래스/메서드 같은 식별자는 exact 또는
         # substring 검색을 우선한다. 자연어 단어 전부를 ILIKE로 검색하지 않도록 토큰을
         # 숫자/점/대문자 특징으로 제한한다.
@@ -97,6 +146,32 @@ def search(
                    WHERE (c.identifier = %s OR c.display_content ILIKE %s ESCAPE '\\')"""
                 + filter_sql + " ORDER BY c.created_at DESC LIMIT %s",
                 (token, f"%{escaped}%", *filter_values, retrieval.exact_top_k),
+            ).fetchall()
+            lanes.append([row["chunk_id"] for row in rows])
+
+            # 오류 코드/예외명만 질문한 경우에도, 그 오류에 저장된 stack frame을 거쳐
+            # 동일 package/class/method의 소스(JAR 디컴파일 포함)를 별도 후보로 올린다.
+            # application frame만 사용해 JDK/Spring 내부 코드가 답변 근거를 점유하지 않게 한다.
+            # psycopg의 client-side placeholder 문법 때문에 SQL 리터럴의 퍼센트 문자는
+            # 두 번 써야 한다. 아래 '$%%'는 PostgreSQL에 '$%'로 전달되어 Java 내부
+            # 클래스 이름(예: Outer$Inner)도 일치시킨다. SQL 문자열 안에는 퍼센트가
+            # 들어간 설명 주석을 두지 않는다. psycopg가 주석까지 먼저 파싱하기 때문이다.
+            rows = conn.execute(
+                """SELECT DISTINCT c.chunk_id, c.created_at
+                   FROM error_events e
+                   JOIN stack_frames f ON f.error_event_id=e.error_event_id
+                    JOIN code_symbols s
+                      ON s.symbol_name=f.method_name
+                     AND (concat_ws('.', s.package_name, s.class_name)=f.class_name
+                          OR f.class_name LIKE concat_ws('.', s.package_name, s.class_name) || '$%%')
+                   JOIN chunks c ON c.chunk_id=s.chunk_id
+                   JOIN assets a ON a.asset_id=c.asset_id
+                   JOIN asset_versions v ON v.version_id=c.version_id
+                   WHERE f.is_application_code
+                     AND (e.error_code=%s OR e.exception_class=%s)"""
+                + filter_sql
+                + " ORDER BY c.created_at DESC LIMIT %s",
+                (token, token, *filter_values, retrieval.exact_top_k),
             ).fetchall()
             lanes.append([row["chunk_id"] for row in rows])
 

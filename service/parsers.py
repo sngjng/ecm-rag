@@ -6,12 +6,162 @@ import json
 import re
 from datetime import datetime
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 
 CODE_RE = re.compile(r'\b(?:ORA-\d{5}|SQLSTATE[=: ]+[0-9A-Z]{5}|[A-Z]{3,8}\d{3,6}[A-Z]?|SQLCODE[=: ]+-?\d+)\b')
 EXCEPTION_RE = re.compile(r'\b(?:[\w.]+(?:Exception|Error))\b')
 FRAME_RE = re.compile(r'^\s*at\s+([\w.$]+)\.([\w$<>]+)\(([^():]+)(?::(\d+))?\)', re.M)
+
+
+@lru_cache(maxsize=1)
+def _get_java_parser():
+    """Java grammar/parser를 Worker 프로세스당 한 번만 생성한다.
+
+    JAR 디컴파일 결과는 Java 파일이 수천 개일 수 있으므로 파일마다 grammar를 다시
+    초기화하면 화면 polling 제한보다 오래 걸릴 수 있다. Worker는 작업을 순차 처리하므로
+    동일 parser 인스턴스를 안전하게 재사용한다.
+    """
+    from tree_sitter_language_pack import get_parser
+
+    return get_parser('java')
+
+
+def _mask_java_non_code(source: str) -> str:
+    """문자열과 주석을 공백으로 바꾸되 줄/문자 위치는 그대로 유지한다.
+
+    JAR 디컴파일 결과는 신뢰할 수 없는 입력이며, 일부 tree-sitter wheel 조합은
+    문법 분석 중 Python 예외가 아닌 segmentation fault를 발생시킬 수 있다.
+    아래 경량 분석기는 중괄호 위치와 선언부만 필요하므로 문자열/주석 내부의
+    가짜 ``class``, ``(``, ``{``가 인식되지 않도록 먼저 마스킹한다.
+    """
+    result = list(source)
+    index = 0
+    state = 'code'
+    while index < len(source):
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < len(source) else ''
+        if state == 'code':
+            if char == '/' and next_char == '/':
+                result[index] = result[index + 1] = ' '
+                state = 'line_comment'
+                index += 2
+                continue
+            if char == '/' and next_char == '*':
+                result[index] = result[index + 1] = ' '
+                state = 'block_comment'
+                index += 2
+                continue
+            if char == '"':
+                result[index] = ' '
+                state = 'string'
+            elif char == "'":
+                result[index] = ' '
+                state = 'character'
+        elif state == 'line_comment':
+            if char == '\n':
+                state = 'code'
+            else:
+                result[index] = ' '
+        elif state == 'block_comment':
+            if char == '*' and next_char == '/':
+                result[index] = result[index + 1] = ' '
+                state = 'code'
+                index += 2
+                continue
+            if char != '\n':
+                result[index] = ' '
+        elif state in ('string', 'character'):
+            delimiter = '"' if state == 'string' else "'"
+            if char == '\\':
+                result[index] = ' '
+                if index + 1 < len(source):
+                    if source[index + 1] != '\n':
+                        result[index + 1] = ' '
+                    index += 2
+                    continue
+            elif char == delimiter:
+                result[index] = ' '
+                state = 'code'
+            elif char != '\n':
+                result[index] = ' '
+        index += 1
+    return ''.join(result)
+
+
+def _java_line_number(source: str, position: int) -> int:
+    return source.count('\n', 0, position) + 1
+
+
+def _java_block_end(masked: str, opening_brace: int) -> int:
+    """선언의 여는 중괄호와 짝이 맞는 닫는 중괄호 위치를 반환한다."""
+    depth = 0
+    for position in range(opening_brace, len(masked)):
+        if masked[position] == '{':
+            depth += 1
+        elif masked[position] == '}':
+            depth -= 1
+            if depth == 0:
+                return position
+    return len(masked) - 1
+
+
+def _parse_java_definitions_without_native(
+    source: str,
+) -> list[tuple[str, str, str | None, int, int, str | None]]:
+    """네이티브 확장 없이 클래스와 메서드 선언 위치를 추출한다.
+
+    완전한 Java 컴파일러가 아니라 검색 인덱스 생성용 안전 분석기다. CFR가 만든
+    소스에서 stack trace 검색에 필요한 package/class/method 키와 대략적인 본문
+    범위를 얻는 것이 목적이다. 실패해도 프로세스가 종료되지 않고 파일 청킹으로
+    계속 진행할 수 있다는 점이 JAR 일괄 처리에서는 더 중요하다.
+    """
+    masked = _mask_java_non_code(source)
+    lines = source.splitlines()
+    definitions: list[tuple[str, str, str | None, int, int, str | None]] = []
+    class_ranges: list[tuple[int, int, str]] = []
+    class_pattern = re.compile(
+        r'\b(class|interface|enum|record)\s+([A-Za-z_$][\w$]*)[^;{}]*\{', re.M
+    )
+    for match in class_pattern.finditer(masked):
+        opening = match.end() - 1
+        closing = _java_block_end(masked, opening)
+        first = _java_line_number(masked, match.start())
+        last = _java_line_number(masked, closing)
+        kind = 'class' if match.group(1) == 'record' else match.group(1)
+        signature = lines[first - 1].strip()[:1000] if lines else None
+        definitions.append((kind, match.group(2), None, first, last, signature))
+        class_ranges.append((opening, closing, match.group(2)))
+
+    # 한 선언이 여러 줄에 걸칠 수 있어 괄호 내부는 제한적으로 DOTALL을 허용한다.
+    # 제어문/호출문은 선언으로 오인하지 않도록 줄 시작, 선택적 modifier, 반환형을 요구한다.
+    method_pattern = re.compile(
+        r'(?ms)^[ \t]*(?:@[\w$.]+(?:\([^\n]*\))?[ \t]*)*'
+        r'(?:(?:public|protected|private|static|final|abstract|synchronized|native|strictfp|default)\s+)*'
+        r'(?:<[^{;()]{1,300}>\s+)?'
+        r'(?:(?P<return>[A-Za-z_$][\w$.[\]<>?, ]*)\s+)?'
+        r'(?P<name>[A-Za-z_$][\w$]*)\s*\([^;{}]{0,4000}\)'
+        r'(?:\s+throws\s+[^{}]{1,1000})?\s*\{'
+    )
+    excluded = {'if', 'for', 'while', 'switch', 'catch', 'try', 'do', 'else', 'new', 'return'}
+    for match in method_pattern.finditer(masked):
+        name = match.group('name')
+        if name in excluded:
+            continue
+        opening = match.end() - 1
+        owners = [item for item in class_ranges if item[0] < match.start() < item[1]]
+        if not owners:
+            continue
+        # 가장 안쪽 범위가 중첩 클래스의 실제 소유자다.
+        _, _, owner = min(owners, key=lambda item: item[1] - item[0])
+        closing = _java_block_end(masked, opening)
+        first = _java_line_number(masked, match.start())
+        last = _java_line_number(masked, closing)
+        signature = ' '.join(source[match.start():opening].split())[:1000]
+        kind = 'constructor' if name == owner and not match.group('return') else 'method'
+        definitions.append((kind, name, owner, first, last, signature))
+    return sorted(definitions, key=lambda item: (item[3], item[4], item[1]))
 
 @dataclass
 class Item:
@@ -232,8 +382,20 @@ def parse_logs(path: Path) -> tuple[list[Item], dict]:
     return items, {'events': len(items)}
 
 
-def parse_code(path: Path, repository: str, branch: str, file_path: str) -> tuple[list[Item], dict]:
-    """Python은 표준 ast, Java는 tree-sitter 구문 노드로 심볼 경계를 얻는다."""
+def parse_code(
+    path: Path,
+    repository: str,
+    branch: str,
+    file_path: str,
+    *,
+    safe_java_parser: bool = False,
+) -> tuple[list[Item], dict]:
+    """Python은 표준 ast, Java는 tree-sitter 또는 안전 분석기로 심볼 경계를 얻는다.
+
+    ``safe_java_parser=True``는 JAR처럼 다량의 외부/디컴파일 소스를 처리할 때 사용한다.
+    이 경로는 네이티브 모듈을 전혀 호출하지 않아 잘못된 소스나 ABI 불일치가 Worker
+    프로세스 전체를 segmentation fault로 종료시키는 문제를 방지한다.
+    """
     source = path.read_text(encoding='utf-8-sig')
     lines = source.splitlines()
     suffix = path.suffix.lower()
@@ -253,27 +415,29 @@ def parse_code(path: Path, repository: str, branch: str, file_path: str) -> tupl
         walk(tree.body)
     elif suffix == '.java':
         # 폐쇄망에서는 grammar wheel까지 반입해야 한다. 실패 시 잘못된 심볼 대신 파일 청크만 사용한다.
-        from tree_sitter_language_pack import get_parser
         raw = source.encode('utf-8')
         package_match = re.search(r'^\s*package\s+([\w.]+)\s*;', source, re.M)
         package_name = package_match.group(1) if package_match else None
-        tree = get_parser('java').parse(raw)
-        if tree.root_node.has_error:
-            raise ValueError('Java AST 구문 오류: 소스/grammar 버전을 확인하세요')
-        def walk(node, owner=None):
-            kind_map = {'class_declaration':'class', 'interface_declaration':'interface',
-                        'method_declaration':'method', 'constructor_declaration':'constructor',
-                        'enum_declaration':'enum'}
-            current_owner = owner
-            if node.type in kind_map:
-                name_node = node.child_by_field_name('name')
-                name = raw[name_node.start_byte:name_node.end_byte].decode('utf-8') if name_node else '?'
-                signature = lines[node.start_point.row].strip()[:1000] if lines else None
-                definitions.append((kind_map[node.type], name, owner, node.start_point.row + 1,
-                                    node.end_point.row + 1, signature))
-                if kind_map[node.type] in ('class','interface','enum'): current_owner = name
-            for child in node.children: walk(child, current_owner)
-        walk(tree.root_node)
+        if safe_java_parser:
+            definitions.extend(_parse_java_definitions_without_native(source))
+        else:
+            tree = _get_java_parser().parse(raw)
+            if tree.root_node.has_error:
+                raise ValueError('Java AST 구문 오류: 소스/grammar 버전을 확인하세요')
+            def walk(node, owner=None):
+                kind_map = {'class_declaration':'class', 'interface_declaration':'interface',
+                            'method_declaration':'method', 'constructor_declaration':'constructor',
+                            'enum_declaration':'enum'}
+                current_owner = owner
+                if node.type in kind_map:
+                    name_node = node.child_by_field_name('name')
+                    name = raw[name_node.start_byte:name_node.end_byte].decode('utf-8') if name_node else '?'
+                    signature = lines[node.start_point.row].strip()[:1000] if lines else None
+                    definitions.append((kind_map[node.type], name, owner, node.start_point.row + 1,
+                                        node.end_point.row + 1, signature))
+                    if kind_map[node.type] in ('class','interface','enum'): current_owner = name
+                for child in node.children: walk(child, current_owner)
+            walk(tree.root_node)
     items: list[Item] = []
     # 모듈 개요로 주석, import, top-level 설정이 검색에서 누락되지 않게 한다.
     header = '\n'.join(lines[:min(70, len(lines))])

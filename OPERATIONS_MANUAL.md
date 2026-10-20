@@ -309,8 +309,9 @@ psql "$RAG_DB_DSN" -v ON_ERROR_STOP=1 \
   -f artifacts/sql/001_pgvector.rendered.sql
 ```
 
-`bin/start.sh`는 증분 migration `002_session_auth_audit.sql`을 매번 안전하게 확인하지만,
-신규 DB의 `001_pgvector.sql`은 자동 생성하지 않습니다.
+`bin/start.sh`는 증분 migration `002_session_auth_audit.sql`과
+`003_code_symbol_stack_lookup.sql`을 매번 안전하게 확인하지만, 신규 DB의
+`001_pgvector.sql`은 자동 생성하지 않습니다.
 
 검증:
 
@@ -387,6 +388,54 @@ RAG_DRM_COMMAND=/srv/ecm-rag/bin/decrypt-wrapper
 DRM 구현 전 테스트에서는 `config/profiles/local.yaml`처럼 `solutions.drm.enabled=false`를
 사용합니다. 운영 `rockylinux9` profile은 기본적으로 DRM을 활성화합니다.
 
+## 10.1 JAR 디컴파일러 연동
+
+소스코드 자산으로 JAR를 업로드하려면 실행 계정이 사용할 수 있는 JDK/JRE와 CFR JAR를
+준비합니다. 애플리케이션은 대상 JAR 안의 클래스를 실행하지 않고 CFR 프로세스만
+`shell=False`로 호출합니다.
+
+```bash
+java -version
+install -d -m 750 /srv/ecm-rag/tools
+# 폐쇄망 반입 절차로 검증된 CFR 파일을 /srv/ecm-rag/tools 아래에 배치
+chmod 640 /srv/ecm-rag/tools/cfr-0.152.jar
+```
+
+`.env` 설정:
+
+```dotenv
+RAG_JAVA_COMMAND=java
+RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
+```
+
+`config/settings.yaml`의 `solutions.jar_decompiler`에서 timeout, 최대 클래스 수, 최대 압축
+해제 크기와 Java 파일별 크기 제한을 관리합니다. worker는 디컴파일 결과를
+`paths.artifact_root/{version_id}/decompiled`에 저장하고, `jar-index.json`에 처리 범위를
+기록합니다. JAR 작업이 실패하면 `artifacts/logs/worker.log`에서 CFR 종료코드, timeout,
+상한 초과 여부를 확인합니다.
+
+JAR 처리 중에는 업로드 화면과 `GET /api/v1/ingestion/jobs/{job_id}` 응답에서 다음 단계와
+`progress_detail`, `processed_items`, `total_items`를 확인할 수 있습니다.
+
+```text
+inspecting_jar → decompiling_jar → parsing_jar → embedding → saving
+```
+
+터미널에서는 API 접근 로그가 아니라 worker 로그를 확인해야 실제 변환 진행상황이
+표시됩니다.
+
+```bash
+tail -f /mnt/appl/ecm-rag/artifacts/logs/worker.log
+```
+
+모든 API·Worker 로그는 `YYYY-MM-DD HH:MM:SS.mmm` 형식의 서버 로컬 타임스탬프를
+앞에 기록합니다. 형식은 `config/logging.yaml`에서 공통 관리합니다.
+
+동일 SHA-256 원본을 다시 업로드할 때 이전 작업이 `failed` 또는 `cancelled`이면 신규
+Asset/Version을 만들지 않고 기존 job의 시도 횟수와 오류 상태를 초기화해 자동
+재접수합니다. 기존 작업이 `queued` 또는 `processing`이면 같은 job ID를 화면에 반환해
+그 작업을 계속 추적하며, 실제로 `completed`인 원본만 기존 문서 확인 대상으로 봅니다.
+
 ## 11. Docling·EasyOCR·모델 설정
 
 현재 OCR 선택은 `easyocr`입니다.
@@ -441,6 +490,8 @@ RAG_DB_DSN=postgresql://raguser:비밀번호@DB주소:5432/ragdb
 
 RAG_AUTH_COMMAND=/srv/ecm-rag/bin/company-auth-wrapper
 RAG_DRM_COMMAND=/srv/ecm-rag/bin/decrypt-wrapper
+RAG_JAVA_COMMAND=java
+RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
 
 RAG_EMBED_URL=http://192.168.1.31:8200/v1/embeddings
 RAG_EMBED_MODEL=bge-m3
@@ -881,13 +932,14 @@ pg_dump "$RAG_DB_DSN" --format=custom --schema=rag --file=/안전경로/pre-upda
 | 6 | `service/repositories/jobs.py` | queue claim, lease, 청크/vector 저장 |
 | 7 | `service/worker.py` | DRM→파싱→임베딩→저장 orchestration |
 | 8 | `service/parsers.py` | 확장자·자산유형별 파서 |
-| 9 | `ingestion/docling_parser.py` | PDF/표/OCR Docling adapter |
-| 10 | `service/embedding.py` | BGE-M3 요청과 차원 검증 |
-| 11 | `service/search.py` | exact/FTS/vector/RRF/reranker 검색 |
-| 12 | `service/answering.py` | 검색 근거와 LLM 결합 |
-| 13 | `service/llm.py` | OpenAI 호환 LLM 요청과 system prompt |
-| 14 | `service/routes/external.py` | JSON/string 무인증 내부망 endpoint |
-| 15 | `web/*.html` | 빌드 없는 화면과 API polling |
+| 9 | `service/jar_parser.py` | CFR 실행, JAR 안전검사, 디컴파일 심볼 변환 |
+| 10 | `ingestion/docling_parser.py` | PDF/표/OCR Docling adapter |
+| 11 | `service/embedding.py` | BGE-M3 요청과 차원 검증 |
+| 12 | `service/search.py` | stack symbol/exact/FTS/vector/RRF/reranker 검색 |
+| 13 | `service/answering.py` | 검색 근거와 LLM 결합 |
+| 14 | `service/llm.py` | OpenAI 호환 LLM 요청과 system prompt |
+| 15 | `service/routes/external.py` | JSON/string 무인증 내부망 endpoint |
+| 16 | `web/*.html` | 빌드 없는 화면과 API polling |
 
 ### 21.1 계층별 수정 원칙
 
