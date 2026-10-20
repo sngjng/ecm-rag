@@ -116,6 +116,10 @@ def _parse(
             job.get("repository") or "",
             job.get("branch") or "",
             job.get("logical_path") or job["source_filename"],
+            # 직접 업로드한 Java도 JAR 디컴파일 결과와 같은 순수 Python 분석기를
+            # 사용한다. 수집 메타를 동일하게 유지하고 tree-sitter ABI 충돌로 Worker
+            # 전체가 종료되는 상황을 방지한다. Python/기타 소스에는 영향이 없다.
+            safe_java_parser=suffix == ".java",
         )
     raise ValueError(f"지원하지 않는 asset_type: {asset_type}")
 

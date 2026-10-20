@@ -1,5 +1,5 @@
 """문서 외 자산 유형의 구조화/검색 표현 회귀 테스트."""
-from service.parsers import parse_code, parse_incident, parse_logs
+from service.parsers import extract_java_diagnostics, parse_code, parse_incident, parse_logs
 
 
 def test_incident_fields_are_preserved_and_added_to_embedding_text(tmp_path):
@@ -39,3 +39,21 @@ def test_stack_trace_extracts_exact_fields(tmp_path):
     assert items[0].error["severity"] == "ERROR"
     assert items[0].error["frames"][0]["line_number"] == 143
     assert items[0].error["root_cause"].startswith("Caused by:")
+
+
+def test_java_exception_metadata_classifies_declared_thrown_caught_and_codes():
+    metadata = extract_java_diagnostics(
+        """try {
+            throw new PaymentException("PAY1001");
+        } catch (java.io.IOException | PaymentException ex) {
+            throw new RuntimeException(ex);
+        }""",
+        signature="public void pay() throws java.sql.SQLException, PaymentException",
+        symbol_name="pay",
+        symbol_type="method",
+    )
+
+    assert metadata["declared_exceptions"] == ["PaymentException", "java.sql.SQLException"]
+    assert metadata["thrown_exceptions"] == ["PaymentException", "RuntimeException"]
+    assert metadata["caught_exceptions"] == ["PaymentException", "java.io.IOException"]
+    assert metadata["error_codes"] == ["PAY1001"]

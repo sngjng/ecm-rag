@@ -1094,7 +1094,13 @@
               content: payload.answer || "답변을 생성하지 못했습니다.",
             },
           );
-          liveStatus.textContent = `답변과 검색 결과 ${results.length}건을 표시했습니다.`;
+          if (payload.generation_status === "out_of_scope") {
+            resultsCount.textContent = "관련 문서 없음";
+            liveStatus.textContent =
+              "등록 문서와 관련 없는 일반 질문에는 답변하지 않습니다.";
+          } else {
+            liveStatus.textContent = `답변과 검색 결과 ${results.length}건을 표시했습니다.`;
+          }
         } catch (error) {
           thinkingMessage.remove();
           const detail = error instanceof Error ? error.message : String(error);

@@ -32,8 +32,11 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
     )
     if not results:
         return {
-            "answer": "질문과 관련된 문서를 찾지 못했습니다. 다른 표현으로 다시 질문해 주세요.",
-            "generation_status": "no_context",
+            "answer": (
+                "등록된 문서에서 질문과 관련된 내용을 찾지 못했습니다. "
+                "본 서비스는 등록 문서와 관련된 질문에만 답변할 수 있습니다."
+            ),
+            "generation_status": "out_of_scope",
             "results": [],
         }
     # 검색 성공과 LLM 장애를 분리한다. LLM만 실패하면 HTTP 오류로 근거까지 버리지 않고

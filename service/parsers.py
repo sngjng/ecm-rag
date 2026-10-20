@@ -13,6 +13,9 @@ from pathlib import Path
 CODE_RE = re.compile(r'\b(?:ORA-\d{5}|SQLSTATE[=: ]+[0-9A-Z]{5}|[A-Z]{3,8}\d{3,6}[A-Z]?|SQLCODE[=: ]+-?\d+)\b')
 EXCEPTION_RE = re.compile(r'\b(?:[\w.]+(?:Exception|Error))\b')
 FRAME_RE = re.compile(r'^\s*at\s+([\w.$]+)\.([\w$<>]+)\(([^():]+)(?::(\d+))?\)', re.M)
+JAVA_EXCEPTION_RE = re.compile(
+    r'\b(?:[A-Za-z_$][\w.$]*)?(?:Exception|Error|Throwable)\b'
+)
 
 
 @lru_cache(maxsize=1)
@@ -162,6 +165,71 @@ def _parse_java_definitions_without_native(
         kind = 'constructor' if name == owner and not match.group('return') else 'method'
         definitions.append((kind, name, owner, first, last, signature))
     return sorted(definitions, key=lambda item: (item[3], item[4], item[1]))
+
+
+def extract_java_diagnostics(
+    text: str,
+    *,
+    signature: str | None = None,
+    symbol_name: str | None = None,
+    symbol_type: str | None = None,
+) -> dict:
+    """Java 코드에서 예외 유형과 업무 오류 코드를 검색용 메타데이터로 분류한다.
+
+    AST 종류와 무관한 공통 단계이므로 직접 업로드한 Java와 CFR로 복원한 JAR에
+    동일하게 적용된다. 완전한 컴파일 의미 분석이 아니라 운영 검색용 분류이며,
+    선언(throws), 발생(throw new), 처리(catch), 참조 유형을 각각 보존한다.
+    """
+    searchable = f"{signature or ''}\n{text}"
+    referenced = sorted(set(JAVA_EXCEPTION_RE.findall(searchable)))
+
+    declared: set[str] = set()
+    for match in re.finditer(r'\bthrows\s+([^\{;\n]+)', searchable):
+        declared.update(JAVA_EXCEPTION_RE.findall(match.group(1)))
+
+    thrown = sorted(set(re.findall(
+        r'\bthrow\s+new\s+([A-Za-z_$][\w.$]*(?:Exception|Error|Throwable))\b',
+        text,
+    )))
+    caught: set[str] = set()
+    for match in re.finditer(r'\bcatch\s*\(([^)]*)\)', text, re.S):
+        caught.update(JAVA_EXCEPTION_RE.findall(match.group(1)))
+
+    error_codes = sorted(set(CODE_RE.findall(text)))
+    is_exception_class = bool(
+        symbol_type == 'class'
+        and symbol_name
+        and (
+            symbol_name.endswith(('Exception', 'Error', 'Throwable'))
+            or re.search(
+                rf'\bclass\s+{re.escape(symbol_name)}\b[^{{;]*\bextends\s+'
+                rf'[\w.$]*(?:Exception|Error|Throwable)\b',
+                text,
+            )
+        )
+    )
+    return {
+        'exception_types': referenced,
+        'declared_exceptions': sorted(declared),
+        'thrown_exceptions': thrown,
+        'caught_exceptions': sorted(caught),
+        'error_codes': error_codes,
+        'is_exception_class': is_exception_class,
+    }
+
+
+def _java_diagnostic_context(metadata: dict) -> str:
+    """구조화된 Java 진단 메타를 embedding 문맥 문자열로 변환한다."""
+    values = [
+        ('Exception types', metadata.get('exception_types')),
+        ('Declared throws', metadata.get('declared_exceptions')),
+        ('Thrown exceptions', metadata.get('thrown_exceptions')),
+        ('Caught exceptions', metadata.get('caught_exceptions')),
+        ('Error codes', metadata.get('error_codes')),
+    ]
+    return ''.join(
+        f"{label}: {', '.join(items)}\n" for label, items in values if items
+    )
 
 @dataclass
 class Item:
@@ -442,33 +510,64 @@ def parse_code(
     # 모듈 개요로 주석, import, top-level 설정이 검색에서 누락되지 않게 한다.
     header = '\n'.join(lines[:min(70, len(lines))])
     if definitions and header.strip():
+        header_metadata = {'repository': repository, 'branch': branch,
+                           'file_path': file_path, 'language': language}
+        if suffix == '.java':
+            header_metadata.update(extract_java_diagnostics(header))
         items.append(Item(kind='code_file', text=f'Repository: {repository}\nPath: {file_path}\n{header}',
                           line_start=1, line_end=min(70, len(lines)), identifier=path.name,
-                          metadata={'repository': repository, 'branch': branch, 'file_path': file_path, 'language': language}))
+                          metadata=header_metadata))
     for kind, name, owner, first, last, signature in definitions:
-        context = (f'Repository: {repository}\nBranch: {branch}\nPath: {file_path}\n'
-                   f'Package: {package_name or ""}\nClass: {owner or ""}\nSymbol: {name}\n'
-                   f'Signature: {signature or ""}\n')
         # 긴 함수의 원문은 여러 청크로 분할. 각 청크에 동일 심볼과 원래 줄 범위를 표시한다.
         for offset in range(first - 1, last, 120):
             end = min(offset + 120, last)
             code = '\n'.join(lines[offset:end])
+            metadata = {'repository': repository, 'branch': branch, 'file_path': file_path,
+                        'language': language, 'symbol_type': kind, 'class_name': owner}
+            if suffix == '.java':
+                metadata.update(extract_java_diagnostics(
+                    code, signature=signature, symbol_name=name, symbol_type=kind
+                ))
+            stored_kind = 'exception_class' if metadata.get('is_exception_class') else kind
+            metadata['symbol_type'] = stored_kind
+            context = (f'Repository: {repository}\nBranch: {branch}\nPath: {file_path}\n'
+                       f'Package: {package_name or ""}\nClass: {owner or ""}\nSymbol: {name}\n'
+                       f'Signature: {signature or ""}\n'
+                       f'{_java_diagnostic_context(metadata)}')
             items.append(Item(kind='code_symbol', text=code, embedding_text=context + code,
                               line_start=offset + 1, line_end=end, identifier=name,
                               parent_id=f'{file_path}:{first}:{name}',
-                              metadata={'repository': repository, 'branch': branch, 'file_path': file_path,
-                                        'language': language, 'symbol_type': kind, 'class_name': owner},
+                              metadata=metadata,
                               symbol={'repository': repository, 'branch': branch, 'file_path': file_path,
-                                      'language': language, 'symbol_type': kind, 'class_name': owner,
+                                      'language': language, 'symbol_type': stored_kind, 'class_name': owner,
                                       'package_name': package_name,
                                       'symbol_name': name, 'signature': signature,
                                       'start_line': offset + 1, 'end_line': end}))
     if not definitions:
         for offset in range(0, len(lines), 120):
             code = '\n'.join(lines[offset:offset+120])
-            context = f'Repository: {repository}\nBranch: {branch}\nPath: {file_path}\n'
+            metadata = {'repository': repository, 'branch': branch, 'file_path': file_path,
+                        'language': language}
+            if suffix == '.java':
+                metadata.update(extract_java_diagnostics(code))
+            context = (f'Repository: {repository}\nBranch: {branch}\nPath: {file_path}\n'
+                       f'{_java_diagnostic_context(metadata)}')
             items.append(Item(kind='code_file', text=code, embedding_text=context + code,
                               line_start=offset + 1, line_end=min(offset + 120, len(lines)),
-                              identifier=path.name, metadata={'repository': repository,
-                              'branch': branch, 'file_path': file_path, 'language': language}))
-    return items, {'symbols': len(definitions), 'language': language}
+                              identifier=path.name, metadata=metadata))
+    exception_types = sorted({
+        value for item in items for value in item.metadata.get('exception_types', [])
+    })
+    error_codes = sorted({
+        value for item in items for value in item.metadata.get('error_codes', [])
+    })
+    return items, {
+        'symbols': len(definitions),
+        'language': language,
+        'exception_types': exception_types,
+        'error_codes': error_codes,
+        'exception_class_count': len({
+            (item.metadata.get('file_path'), item.identifier)
+            for item in items if item.metadata.get('is_exception_class')
+        }),
+    }

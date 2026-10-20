@@ -28,7 +28,15 @@ class JarParserTest(unittest.TestCase):
                 java.write_text(
                     "package com.company.payment;\n"
                     "public class PaymentService {\n"
-                    "  public void pay(String id) { System.out.println(id); }\n"
+                    "  public void pay(String id) throws PaymentException {\n"
+                    "    try { System.out.println(id); }\n"
+                    "    catch (java.sql.SQLException ex) {\n"
+                    "      throw new PaymentException(\"PAY1001\", ex);\n"
+                    "    }\n"
+                    "  }\n"
+                    "}\n"
+                    "class PaymentException extends RuntimeException {\n"
+                    "  PaymentException(String code, Throwable cause) { super(code, cause); }\n"
                     "}\n",
                     encoding="utf-8",
                 )
@@ -60,6 +68,19 @@ class JarParserTest(unittest.TestCase):
             self.assertEqual(pay.symbol["package_name"], "com.company.payment")
             self.assertEqual(pay.symbol["class_name"], "PaymentService")
             self.assertEqual(pay.metadata["jar_path"], "lib/payment.jar")
+            self.assertIn("PaymentException", pay.metadata["declared_exceptions"])
+            self.assertIn("PaymentException", pay.metadata["thrown_exceptions"])
+            self.assertIn("java.sql.SQLException", pay.metadata["caught_exceptions"])
+            self.assertIn("PAY1001", pay.metadata["error_codes"])
+            exception_class = next(
+                item for item in items
+                if item.identifier == "PaymentException"
+                and item.metadata.get("is_exception_class")
+            )
+            self.assertEqual(exception_class.symbol["symbol_type"], "exception_class")
+            self.assertIn("PaymentException", report["exception_types"])
+            self.assertIn("PAY1001", report["error_codes"])
+            self.assertEqual(report["exception_class_count"], 1)
             self.assertGreaterEqual(report["symbols"], 2)
             self.assertEqual(progress_events[0][0], "inspecting_jar")
             self.assertIn(("decompiling_jar", 0, 1), progress_events)
@@ -93,6 +114,31 @@ class JarParserTest(unittest.TestCase):
             self.assertEqual(hello.symbol["package_name"], "sample")
             self.assertEqual(hello.symbol["class_name"], "Example")
             self.assertGreaterEqual(report["symbols"], 2)
+
+    def test_direct_java_upload_uses_same_safe_analysis_path_as_jar(self):
+        from service.worker import _parse
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            java = root / "PaymentService.java"
+            java.write_text("public class PaymentService {}\n", encoding="utf-8")
+            job = {
+                "asset_type": "source_code",
+                "repository": "payment",
+                "branch": "main",
+                "logical_path": "src/PaymentService.java",
+                "source_filename": "PaymentService.java",
+            }
+            with patch("service.worker.parse_code", return_value=([], {})) as parser:
+                _parse(job, java, root / "out")
+
+            parser.assert_called_once_with(
+                java,
+                "payment",
+                "main",
+                "src/PaymentService.java",
+                safe_java_parser=True,
+            )
 
 
 if __name__ == "__main__":

@@ -47,7 +47,9 @@ flowchart LR
 
 1. API는 파일 접수와 DB 작업 등록만 하고 PDF 파싱은 수행하지 않습니다.
 2. Worker는 PostgreSQL queue를 가져가 DRM, 파싱, OCR, 임베딩, 저장을 수행합니다.
-3. 검색은 PostgreSQL exact/FTS와 pgvector cosine 검색을 RRF로 결합합니다.
+3. 검색은 PostgreSQL exact/FTS와 pgvector cosine 검색을 RRF로 결합합니다. cosine
+   distance가 `retrieval.max_vector_distance`보다 크고 exact/FTS 근거도 없으면 일반
+   대화로 판단하여 LLM을 호출하지 않습니다.
 4. `/api/v1/chat`은 로그인 세션을 요구하고, `/api/v1/external/answer`는 내부망 연동을
    위해 인증하지 않습니다.
 5. 무인증 endpoint의 접근 제어는 호스트 방화벽 또는 reverse proxy ACL 책임입니다.
@@ -414,6 +416,12 @@ RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
 기록합니다. JAR 작업이 실패하면 `artifacts/logs/worker.log`에서 CFR 종료코드, timeout,
 상한 초과 여부를 확인합니다.
 
+JAR에서 복원한 Java와 사용자가 직접 등록한 `.java`는 동일한 진단 메타데이터를
+수집합니다. 각 코드 청크의 `metadata`에는 `exception_types`, `declared_exceptions`,
+`thrown_exceptions`, `caught_exceptions`, `error_codes`, `is_exception_class`가 저장됩니다.
+예외 클래스는 `code_symbols.symbol_type=exception_class`로도 분류되므로 stack trace의
+package/class/method 검색과 예외명·오류 코드 검색에 함께 활용할 수 있습니다.
+
 JAR 처리 중에는 업로드 화면과 `GET /api/v1/ingestion/jobs/{job_id}` 응답에서 다음 단계와
 `progress_detail`, `processed_items`, `total_items`를 확인할 수 있습니다.
 
@@ -527,6 +535,10 @@ ECM_RAG_WORKER_PROCESSES=2
 | `models.embedding.dimension` | embedding 차원 | SQL `vector(N)`과 반드시 동일 |
 | `models.embedding.batch_size` | 임베딩 요청 batch | 모델 서버 GPU 메모리에 맞게 조정 |
 | `models.llm.context_top_k` | LLM에 전달할 근거 수 | 지연·context 길이에 영향 |
+| `models.llm.context_window_tokens` | 실제 LLM context 크기 | Ollama 모델 설정과 동일하게 지정 |
+| `models.llm.prompt_safety_tokens` | prompt 계산 안전 여유 | 출력 토큰 외 protocol/tokenizer 오차 흡수 |
+| `models.llm.max_history_characters` | 최근 대화 이력 문자 상한 | 높이면 문서 근거 공간이 감소 |
+| `retrieval.max_vector_distance` | 문서 관련성 cosine distance 상한 | 낮을수록 일반대화 차단이 엄격 |
 | `solutions.ocr` | `easyocr/rapidocr/disabled` | 현재 easyocr |
 | `worker.processes` | 처리 worker 수 | CPU/GPU/DB 부하 확인 |
 | `worker.lease_seconds` | 비정상 worker 회수 기준 | 대형 PDF 처리시간보다 충분히 길게 |
@@ -840,7 +852,11 @@ python -c "import docling; print('docling OK')"
 {"generation_status":"unavailable","answer":"...","results":[...]}
 ```
 
-8000 포트, 모델명, `/v1/chat/completions` 호환 응답을 확인합니다.
+8000 포트, 모델명, `/v1/chat/completions` 호환 응답을 확인합니다. 로그에
+`exceed_context_size_error`가 있으면 `models.llm.context_window_tokens`가 Ollama의
+실제 `n_ctx`와 같은지 확인합니다. 서비스는 이 값에서 출력·안전 여유를 제외하고
+검색 근거와 최근 이력을 제한하며, 초과 응답 시 이력을 제거하고 근거를 절반으로 줄여
+한 번 자동 재시도합니다.
 
 ### 18.9 업로드 409
 

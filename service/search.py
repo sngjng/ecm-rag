@@ -44,6 +44,28 @@ def _stack_frame_keys(query: str) -> list[tuple[str, list[str], list[str]]]:
     return keys
 
 
+def _qualified_vector_ranking(
+    rows: list[dict], max_distance: float
+) -> tuple[list[str], dict[str, float]]:
+    """관련성 기준을 통과한 vector 후보와 진단용 거리를 반환한다.
+
+    최근접 검색은 어떤 질문에도 반드시 결과를 돌려준다. 따라서 거리 제한이 없으면
+    날씨·인사 같은 일반대화에도 무관한 사내 문서를 근거로 선택하게 된다.
+    """
+    distances = {
+        row["chunk_id"]: float(row["vector_distance"])
+        for row in rows
+        if row.get("vector_distance") is not None
+    }
+    ranking = [
+        row["chunk_id"]
+        for row in rows
+        if row.get("vector_distance") is not None
+        and float(row["vector_distance"]) <= max_distance
+    ]
+    return ranking, distances
+
+
 @lru_cache(maxsize=2)
 def get_reranker(path: str, use_fp16: bool):
     """무거운 reranker 모델을 프로세스당 한 번만 로드한다."""
@@ -191,14 +213,17 @@ def search(
         # Lane 3: 질의를 문서 청크와 같은 embedding 모델로 변환한 cosine 근접 검색.
         query_vector = np.asarray(embed([query])[0], dtype=np.float32)
         rows = conn.execute(
-            """SELECT c.chunk_id
+            """SELECT c.chunk_id, c.embedding <=> %s AS vector_distance
                FROM chunks c JOIN assets a USING(asset_id)
                JOIN asset_versions v USING(version_id)
                WHERE c.embedding IS NOT NULL"""
-            + filter_sql + " ORDER BY c.embedding <=> %s LIMIT %s",
-            (*filter_values, query_vector, retrieval.vector_top_k),
+            + filter_sql + " ORDER BY vector_distance LIMIT %s",
+            (query_vector, *filter_values, retrieval.vector_top_k),
         ).fetchall()
-        lanes.append([row["chunk_id"] for row in rows])
+        vector_ranking, vector_distances = _qualified_vector_ranking(
+            rows, retrieval.max_vector_distance
+        )
+        lanes.append(vector_ranking)
 
         # 점수 단위가 서로 다른 세 lane을 직접 더하지 않고 순위 기반 RRF로 결합한다.
         fused = reciprocal_rank_fusion(lanes, k=retrieval.rrf_k)
@@ -254,6 +279,7 @@ def search(
         row = dict(by_id[chunk_id])
         row["rrf_score"] = rrf_scores[chunk_id]
         row["rerank_score"] = rerank_scores.get(chunk_id)
+        row["vector_distance"] = vector_distances.get(chunk_id)
         row["neighbor_context"] = [
             neighbors[neighbor_id]
             for neighbor_id in (row["previous_chunk_id"], row["next_chunk_id"])

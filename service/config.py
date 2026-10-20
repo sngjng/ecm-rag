@@ -80,6 +80,12 @@ class LlmSettings(EndpointSettings):
     max_tokens: int = Field(default=1200, ge=64, le=8192)
     context_top_k: int = Field(default=8, ge=1, le=30)
     max_context_characters: int = Field(default=24000, ge=1000, le=200000)
+    # 모델 tokenizer를 애플리케이션에 중복 탑재하지 않고도 prompt 초과를 방지하기
+    # 위한 보수적 문자 예산이다. 코드/한글 혼합 문서는 1문자≈1토큰으로 계산한다.
+    context_window_tokens: int = Field(default=8192, ge=2048, le=1048576)
+    prompt_safety_tokens: int = Field(default=1000, ge=128, le=32768)
+    estimated_characters_per_token: float = Field(default=1.0, ge=0.5, le=8.0)
+    max_history_characters: int = Field(default=1500, ge=0, le=50000)
 
 
 class EmbeddingSettings(EndpointSettings):
@@ -185,6 +191,9 @@ class RetrievalSettings(SettingsModel):
     exact_top_k: int = Field(default=30, ge=1)
     lexical_top_k: int = Field(default=40, ge=1)
     vector_top_k: int = Field(default=40, ge=1)
+    # pgvector cosine distance는 낮을수록 유사하다. 이 값보다 먼 후보는 단순히
+    # "가장 가까운 문서"일 뿐 관련 근거로 보지 않아 일반대화를 차단한다.
+    max_vector_distance: float = Field(default=0.55, ge=0.0, le=2.0)
     fusion_top_k: int = Field(default=30, ge=1)
     rrf_k: int = Field(default=60, ge=1)
     default_limit: int = Field(default=10, ge=1, le=100)

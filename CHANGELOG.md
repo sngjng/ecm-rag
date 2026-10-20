@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- 8K LLM context window에 맞춰 system prompt·질문·최근 이력·검색 근거의 문자 예산을
+  계산하고, context 초과 응답 시 이력 제거와 근거 축소 후 한 번 자동 재시도
+- 로그인 성공 및 기존 인증 세션 확인 후 기본 이동 화면을 `spl_upload.html`로 변경
+- 벡터 cosine distance 관련성 기준을 추가해 날씨·인사 등 등록 문서와 무관한
+  일반대화는 LLM을 호출하지 않고 문서 전용 안내로 응답
+- JAR 디컴파일 Java와 단일 Java 업로드에서 Exception/Error/Throwable 선언·발생·처리,
+  업무 오류 코드를 동일한 청크 metadata와 embedding 문맥으로 분류
+
 - 소스코드 자산의 JAR 업로드와 CFR 기반 Java 디컴파일 추가
 - 디컴파일 결과를 package/class/method 심볼 및 pgvector 청크로 저장
 - Java stack trace 직접 입력 또는 저장된 오류 코드·예외명을 code symbol과 연결하는 검색 lane 추가

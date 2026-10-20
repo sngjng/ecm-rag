@@ -109,7 +109,9 @@ JAR 업로드는 Python 패키지를 추가로 설치하지 않습니다. JDK의
 `.jar`를 접수할 수 있으며, worker가 클래스를 실행하지 않고 디컴파일한 Java 소스를
 클래스·메서드 단위로 임베딩합니다. 질문에 Java stack trace를 붙여 넣으면 검색기가
 `package + class + method`를 `rag.code_symbols`와 먼저 정확 매칭한 뒤 FTS·pgvector
-결과와 결합합니다.
+결과와 결합합니다. JAR 디컴파일 소스와 단일 `.java` 파일은 동일한 공통 분석기를
+사용하여 `throws`, `throw new`, `catch`, Exception/Error/Throwable 유형과 업무 오류
+코드를 청크 metadata 및 embedding 문맥에 함께 저장합니다.
 
 - 공통값: `config/settings.yaml`
 - 로컬 개발: `config/profiles/local.yaml`
@@ -190,12 +192,18 @@ curl -b session.cookie \
 ```
 
 검색은 식별자 exact/substring, PostgreSQL FTS, pgvector cosine 후보를 RRF로 합친 뒤
+`retrieval.max_vector_distance` 관련성 기준을 적용합니다. 기준을 통과한 문서가 없으면
+일반대화로 판단해 LLM을 호출하지 않고 문서 관련 질문만 지원한다는 안내를 반환합니다.
 YAML에서 활성화한 경우에만 로컬 reranker를 적용합니다. 최신·승인 버전 우선 정책도
 YAML로 조정할 수 있습니다. `/api/v1/chat`은 이 검색 결과를 로컬 OpenAI 호환 LLM에
 전달해 출처 번호가 포함된 답변과 근거 검색 결과를 함께 반환합니다. LLM 장애 시에도
 검색 결과는 유지되며 `generation_status=unavailable`로 상태를 구분합니다.
 
 LLM 연결 정보와 생성 제한은 코드가 아닌 `config/settings.yaml` 및 환경변수로 관리합니다.
+`context_window_tokens`는 실제 모델 context와 동일하게 설정해야 하며, 서비스는
+`max_tokens`, `prompt_safety_tokens`, 최근 대화 이력을 제외한 남은 예산만 검색 근거에
+사용합니다. 그래도 모델이 context 초과를 반환하면 이력을 제거하고 근거를 절반으로
+줄여 한 번 자동 재시도합니다.
 
 ```bash
 export RAG_LLM_URL='http://LLM서버:포트/v1'

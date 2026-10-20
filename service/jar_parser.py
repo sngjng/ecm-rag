@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
-from service.parsers import Item, parse_code
+from service.parsers import Item, extract_java_diagnostics, parse_code
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,16 @@ def _fallback_java_chunks(
             f"Repository: {repository}\nBranch: {branch}\nPath: {logical_path}\n"
             f"Package: {package or ''}\nDecompiled Java source\n"
         )
+        diagnostics = extract_java_diagnostics(code)
+        for label, key in (
+            ("Exception types", "exception_types"),
+            ("Declared throws", "declared_exceptions"),
+            ("Thrown exceptions", "thrown_exceptions"),
+            ("Caught exceptions", "caught_exceptions"),
+            ("Error codes", "error_codes"),
+        ):
+            if diagnostics[key]:
+                context += f"{label}: {', '.join(diagnostics[key])}\n"
         items.append(
             Item(
                 kind="decompiled_code",
@@ -86,6 +96,7 @@ def _fallback_java_chunks(
                     "package_name": package,
                     "decompiled": True,
                     "ast_fallback": True,
+                    **diagnostics,
                 },
             )
         )
@@ -245,6 +256,20 @@ def parse_jar(
         "symbols": parsed_symbols,
         "ast_fallback_files": ast_fallback_files,
         "skipped_large_files": skipped_large_files,
+        "exception_types": sorted({
+            value
+            for item in items
+            for value in item.metadata.get("exception_types", [])
+        }),
+        "error_codes": sorted({
+            value
+            for item in items
+            for value in item.metadata.get("error_codes", [])
+        }),
+        "exception_class_count": len({
+            (item.metadata.get("file_path"), item.identifier)
+            for item in items if item.metadata.get("is_exception_class")
+        }),
     }
     logger.info(
         "jar parsing completed file=%s chunks=%d symbols=%d fallback_files=%d skipped_large=%d",
@@ -271,6 +296,8 @@ def parse_jar(
                         "file_path": item.metadata.get("file_path"),
                         "line_start": item.line_start,
                         "line_end": item.line_end,
+                        "exception_types": item.metadata.get("exception_types", []),
+                        "error_codes": item.metadata.get("error_codes", []),
                     }
                     for item in items
                 ],

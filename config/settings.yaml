@@ -47,6 +47,12 @@ models:
     max_tokens: 1200
     context_top_k: 8
     max_context_characters: 24000
+    # 테스트 LLM의 실제 context 8192에 맞춘 prompt 예산. Java 코드는 토큰 밀도가
+    # 높으므로 1문자를 1토큰으로 보수적으로 계산하고 출력/프로토콜 여유를 남긴다.
+    context_window_tokens: 8192
+    prompt_safety_tokens: 1000
+    estimated_characters_per_token: 1.0
+    max_history_characters: 1500
   embedding:
     provider: openai_compatible
     # OpenAI 호환 요청: POST body는 {"model": ..., "input": [...]} 형식이어야 한다.
@@ -117,6 +123,9 @@ retrieval:
   exact_top_k: 30
   lexical_top_k: 40
   vector_top_k: 40
+  # cosine distance가 이 값보다 큰 후보는 무관한 문서로 판단한다. 임베딩 모델을
+  # 교체하면 대표 질문으로 0.45~0.70 범위를 평가한 뒤 조정한다.
+  max_vector_distance: 0.55
   fusion_top_k: 30
   rrf_k: 60
   default_limit: 10
