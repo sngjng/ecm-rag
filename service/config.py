@@ -169,12 +169,12 @@ class WorkerSettings(SettingsModel):
 class DuplicateDetectionSettings(SettingsModel):
     """기존 문서 후보 판별 정책.
 
-    판별 결과는 자동 병합에 사용하지 않고 사용자 확인 후보로만 제공한다. 환경별 문서
-    명명 품질에 맞춰 YAML에서 임계값과 후보 수를 조정할 수 있다.
+    판별 결과는 자동 병합에 사용하지 않고 사용자 확인 후보로만 제공한다. 서로 다른
+    모듈명이 비슷하다는 이유로 후보가 되는 오탐을 막기 위해 유사도 임계값은 사용하지
+    않으며, YAML에서는 기능 활성화 여부와 최대 후보 수만 관리한다.
     """
 
     enabled: bool = True
-    title_similarity_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
     max_candidates: int = Field(default=5, ge=1, le=20)
 
 

@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from service.answering import answer_documents
 from service.schemas import ChatRequest
+from service.stacktrace import analyze_stack_trace, build_stack_trace_query
 
 
 router = APIRouter(prefix="/external", tags=["external"])
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/external", tags=["external"])
 MAX_REQUEST_BYTES = 16 * 1024
 
 
-def parse_external_question(body: bytes, content_type: str) -> ChatRequest:
+def _parse_external_payload(body: bytes, content_type: str) -> dict:
     """JSON 객체·JSON 문자열·일반 문자열을 공통 ChatRequest로 정규화한다.
 
     ``ChatRequest``로 최종 검증하기 때문에 query 길이, limit 범위, asset_type 값은
@@ -52,9 +53,43 @@ def parse_external_question(body: bytes, content_type: str) -> ChatRequest:
     else:
         payload = {"query": text.strip()}
 
+    return payload
+
+
+def parse_external_question(body: bytes, content_type: str) -> ChatRequest:
+    """기존 일반 질의 호출 형식을 ``ChatRequest``로 변환한다."""
+    payload = _parse_external_payload(body, content_type)
     # 아래 모델 검증을 통과한 뒤부터 내부 /chat과 같은 검색·LLM 경로를 사용한다.
     try:
         return ChatRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
+
+
+def prepare_external_answer(
+    body: bytes, content_type: str
+) -> tuple[ChatRequest, dict | None]:
+    """외부 요청을 검색용 질문과 선택적인 스택트레이스 분석 결과로 변환한다."""
+    payload = _parse_external_payload(body, content_type)
+    trace = payload.pop("stack_trace", None)
+    if trace is not None and not isinstance(trace, str):
+        raise HTTPException(422, "stack_trace는 문자열이어야 합니다")
+    candidate = trace or payload.get("query")
+    analysis = analyze_stack_trace(candidate) if isinstance(candidate, str) else None
+    if trace is not None:
+        if not trace.strip():
+            raise HTTPException(422, "스택트레이스를 입력해 주세요")
+        # 호출자가 명시적으로 stack_trace 필드를 사용한 경우 프레임이 일부 잘린
+        # 한 줄짜리 예외여도 분석 요청으로 취급한다.
+        analysis["detected"] = True
+    if analysis and analysis["detected"]:
+        payload["query"] = build_stack_trace_query(
+            candidate,
+            analysis,
+            payload.get("query") if trace is not None else None,
+        )
+    try:
+        return ChatRequest.model_validate(payload), analysis
     except ValidationError as exc:
         raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
 
@@ -67,8 +102,16 @@ async def answer(request: Request):
     ``text/plain`` 일반 문자열이다. 별도 세션/API 인증 없이 호출할 수 있으며 접근
     통제는 내부망 방화벽과 서버 바인딩 정책에서 수행한다.
     """
-    question = parse_external_question(
-        await request.body(),
-        request.headers.get("content-type", "text/plain"),
-    )
-    return answer_documents(question)
+    body = await request.body()
+    content_type = request.headers.get("content-type", "text/plain")
+    # JSON 객체는 stack_trace 전용 필드를 사용할 수 있다. 레거시 연동 시스템이 원문을
+    # query 또는 text/plain으로 보내는 경우에도 동일하게 자동 판별한다.
+    question, analysis = prepare_external_answer(body, content_type)
+
+    response = answer_documents(question)
+    if analysis and analysis["detected"]:
+        response["request_type"] = "stack_trace"
+        response["stack_trace_analysis"] = analysis
+    else:
+        response["request_type"] = "question"
+    return response

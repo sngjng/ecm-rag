@@ -239,6 +239,26 @@ def test_upload_requires_confirmation_before_adding_existing_asset_version(clien
     assert history.json()["items"][0]["employee_name"] == "테스트 사용자"
 
 
+def test_similar_title_alone_does_not_require_duplicate_confirmation(client, auth_headers):
+    """builder.jar와 builder-api.jar는 이름이 비슷해도 별도 Asset으로 등록한다."""
+    first = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data={"asset_type": "source_code", "title": "builder.jar"},
+        files={"file": ("builder.jar", b"first jar bytes", "application/java-archive")},
+    )
+    assert first.status_code == 202, first.text
+
+    second = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data={"asset_type": "source_code", "title": "builder-api.jar"},
+        files={"file": ("builder-api.jar", b"second jar bytes", "application/java-archive")},
+    )
+    assert second.status_code == 202, second.text
+    assert second.json()["asset_id"] != first.json()["asset_id"]
+
+
 def test_exact_failed_upload_reuses_and_requeues_existing_job(client, auth_headers):
     """파싱 실패한 동일 원본 재업로드는 중복 Asset 대신 기존 job을 재접수한다."""
     payload = {

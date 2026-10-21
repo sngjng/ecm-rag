@@ -231,10 +231,23 @@ curl -X POST http://서버주소:8300/api/v1/external/answer \
 curl -X POST http://서버주소:8300/api/v1/external/answer \
   -H 'Content-Type: text/plain; charset=utf-8' \
   --data-binary '장애 대응 절차를 알려줘'
+
+# 스택트레이스 분석: query에는 담당자가 원하는 분석 방향을 선택적으로 지정
+curl -X POST http://서버주소:8300/api/v1/external/answer \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query":"원인과 관련 소스, 조치 방법을 알려줘",
+    "stack_trace":"java.lang.NullPointerException: value\\n at com.company.OrderService.load(OrderService.java:42)",
+    "limit":5
+  }'
 ```
 
 응답에는 `answer`, `generation_status`, `results`가 포함됩니다. `results`는 답변에 사용한
-문서 청크와 자산·버전·페이지 등의 출처 정보입니다.
+문서 청크와 자산·버전·페이지 등의 출처 정보입니다. 스택트레이스로 판별되면 추가로
+`request_type=stack_trace`와 `stack_trace_analysis`가 반환됩니다. 분석 결과에는 fingerprint,
+주 예외, 최하위 원인, 오류 코드, 전체 호출 프레임 및 애플리케이션 호출 프레임이 포함됩니다.
+원문을 `query` 또는 `text/plain`으로 직접 보내도 자동 판별되지만, 외부 시스템 연동에서는
+질문과 원문을 구분할 수 있는 `stack_trace` 필드 사용을 권장합니다.
 
 로그인부터 검색까지 한 번에 확인하려면 API 호출 예제를 실행합니다. 비밀번호는 명령행
 인자 대신 환경변수 또는 보안 입력으로 전달합니다.

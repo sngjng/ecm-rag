@@ -101,8 +101,9 @@ Version/Job과 같은 트랜잭션으로 기록합니다.
 | 제목 | `title` | `rag.assets.title` | 비우면 업로드 파일명 사용 |
 | 보안등급 | `security_level` | `rag.assets.security_level` | 접근통제 연계를 위한 분류 |
 
-Asset ID는 화면 입력 항목이 아닙니다. 서버가 동일 파일 SHA-256, 파일명, 제목 일치와
-`pg_trgm` 제목 유사도를 비교해 기존 문서 후보를 반환합니다. 사용자가 후보를 선택하면
+Asset ID는 화면 입력 항목이 아닙니다. 서버가 동일 파일 SHA-256, 저장소 경로, 파일명 또는
+제목이 정확히 일치할 때만 기존 문서 후보를 반환합니다. 비슷한 제목만으로는 후보로
+판정하지 않습니다. 사용자가 후보를 선택하면
 화면이 `confirmed_asset_id`를 내부적으로 전송하고 Version만 추가합니다. 별도 신규 문서를
 선택하거나 후보가 없으면 `assets.create_asset()`이 새 UUID를 생성합니다.
 

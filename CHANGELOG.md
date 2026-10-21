@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- 서로 다른 JAR·문서의 유사한 이름으로 발생하는 오탐을 막기 위해 중복 후보 조건에서
+  제목 유사도를 제거하고 해시·경로·파일명·정확한 제목 일치만 사용
+- 무인증 내부망 `/api/v1/external/answer`에서 JSON `stack_trace`, query 내 trace 및
+  `text/plain` trace를 자동 판별하고 구조화된 예외·프레임 분석 결과를 반환
+- 예외 유형, 최하위 원인, 오류 코드, Java 호출 프레임과 정규화 fingerprint를
+  PostgreSQL/pgvector 및 JAR/Java 심볼 검색 질의에 반영
 - 8K LLM context window에 맞춰 system prompt·질문·최근 이력·검색 근거의 문자 예산을
   계산하고, context 초과 응답 시 이력 제거와 근거 축소 후 한 번 자동 재시도
 - 로그인 성공 및 기존 인증 세션 확인 후 기본 이동 화면을 `spl_upload.html`로 변경

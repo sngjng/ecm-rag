@@ -115,13 +115,13 @@ def count_assets_by_type() -> dict[str, int]:
 def find_duplicate_candidates(
     *, asset_type: str, title: str, source_filename: str, sha256: str,
     system_name: str, service_name: str, repository: str, logical_path: str,
-    title_similarity_threshold: float, limit: int,
+    limit: int,
 ) -> list[dict[str, Any]]:
     """업로드 원본과 같은 논리 문서일 가능성이 있는 Asset 후보를 찾는다.
 
-    전체 버전의 동일 내용 해시, 현재 버전의 파일명·소스 경로, 공백을 제거한 제목,
-    pg_trgm 제목 유사도를 함께 사용한다. 결과는 자동 병합 결정이 아니라 사용자 확인
-    화면에 제공할 후보이며 각 행에는 판별 근거 boolean/유사도 값이 포함된다.
+    전체 버전의 동일 내용 해시, 현재 버전의 파일명·소스 경로, 공백을 제거한 정확한
+    제목만 사용한다. ``builder.jar``와 ``builder-api.jar``처럼 이름만 비슷한 별도
+    산출물을 버전 후보로 오인하지 않도록 제목 유사도는 판정 조건에서 제외한다.
     """
     with connect() as conn:
         rows = conn.execute(
@@ -155,8 +155,7 @@ def find_duplicate_candidates(
                       (i.system_name <> '' AND
                        lower(coalesce(a.system_name, ''))=lower(i.system_name)) AS same_system,
                       (i.service_name <> '' AND
-                       lower(coalesce(a.service_name, ''))=lower(i.service_name)) AS same_service,
-                      similarity(lower(a.title), lower(i.title)) AS title_similarity
+                       lower(coalesce(a.service_name, ''))=lower(i.service_name)) AS same_service
                  FROM assets a
                  JOIN latest_version v USING (asset_id)
                 CROSS JOIN input i
@@ -173,7 +172,6 @@ def find_duplicate_candidates(
                     OR lower(v.source_filename)=lower(i.source_filename)
                     OR regexp_replace(lower(trim(a.title)), '\\s+', '', 'g') =
                        regexp_replace(lower(trim(i.title)), '\\s+', '', 'g')
-                    OR similarity(lower(a.title), lower(i.title)) >= %s
                   )
                 ORDER BY EXISTS (
                            SELECT 1 FROM asset_versions ev
@@ -185,13 +183,12 @@ def find_duplicate_candidates(
                          (regexp_replace(lower(trim(a.title)), '\\s+', '', 'g') =
                           regexp_replace(lower(trim(i.title)), '\\s+', '', 'g')) DESC,
                          (lower(v.source_filename)=lower(i.source_filename)) DESC,
-                         similarity(lower(a.title), lower(i.title)) DESC,
                          v.created_at DESC
                 LIMIT %s""",
             (
                 asset_type, title, source_filename, sha256,
                 system_name, service_name, repository, logical_path,
-                title_similarity_threshold, limit,
+                limit,
             ),
         ).fetchall()
 
@@ -203,8 +200,6 @@ def find_duplicate_candidates(
             reasons.append("동일한 저장소 경로")
         if row["exact_title"]:
             reasons.append("동일한 제목")
-        elif row["title_similarity"] >= title_similarity_threshold:
-            reasons.append(f"유사한 제목 ({row['title_similarity']:.0%})")
         if row["exact_filename"]:
             reasons.append("동일한 파일명")
         if row["same_system"]:

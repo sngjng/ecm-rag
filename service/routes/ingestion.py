@@ -178,7 +178,6 @@ async def upload(
                 service_name=service_name,
                 repository=repository,
                 logical_path=logical_path,
-                title_similarity_threshold=duplicate_settings.title_similarity_threshold,
                 limit=duplicate_settings.max_candidates,
             )
 

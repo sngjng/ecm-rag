@@ -102,7 +102,6 @@ ingestion:
   # 기존 문서 후보가 발견되어도 자동 병합하지 않고 업로드 사용자에게 확인받는다.
   duplicate_detection:
     enabled: true
-    title_similarity_threshold: 0.72
     max_candidates: 5
   allowed_extensions:
     document: [.pdf, .docx, .txt, .md]

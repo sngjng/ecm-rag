@@ -544,7 +544,6 @@ ECM_RAG_WORKER_PROCESSES=2
 | `worker.lease_seconds` | 비정상 worker 회수 기준 | 대형 PDF 처리시간보다 충분히 길게 |
 | `worker.max_attempts` | 자동 시도 횟수 | 반복 실패 시 failed 전환 |
 | `ingestion.max_pending_jobs` | queued+processing 상한 | 초과 시 HTTP 429 |
-| `duplicate_detection.title_similarity_threshold` | 제목 유사 후보 기준 | 현재 0.72 |
 
 ## 13. 시작·종료·재시작
 
@@ -649,6 +648,24 @@ curl -sS -X POST http://127.0.0.1:8300/api/v1/external/answer \
 
 다른 회사망 PC에서는 `127.0.0.1` 대신 ECM-RAG 서버 IP를 사용합니다. 응답에
 `answer`, `generation_status`, `results`가 있어야 합니다.
+
+스택트레이스는 JSON의 `stack_trace` 필드로 전달합니다. 서버는 예외 유형, 오류 코드,
+패키지·클래스·메서드와 최하위 `Caused by`를 추출하고, 해당 키로 업로드된 로그와
+JAR/Java 심볼을 검색한 뒤 LLM 답변과 구조화 분석 결과를 함께 반환합니다.
+
+```bash
+curl -sS -X POST http://127.0.0.1:8300/api/v1/external/answer \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query":"원인과 관련 소스 및 조치 방법을 알려줘",
+    "stack_trace":"java.sql.SQLException: ORA-00942\\n at com.company.Repository.load(Repository.java:81)",
+    "limit":5
+  }'
+```
+
+응답의 `stack_trace_analysis`에는 `fingerprint`, `primary_exception`, `root_cause`,
+`error_codes`, `frames`, `application_frames`가 포함됩니다. 원문 최대 크기는 16 KiB이며,
+응답의 분석 정보만으로 장애를 확정하지 말고 `results` 출처와 원문을 함께 확인합니다.
 
 ### 14.4 브라우저 화면
 
