@@ -264,6 +264,8 @@ export RAG_LLM_API_KEY='필요한 경우에만 설정'
 연동 endpoint입니다. Rocky Linux profile은 `0.0.0.0`으로 수신하며 실제 접근 범위는
 내부망 방화벽과 reverse proxy에서 제한합니다. JSON 객체, JSON 문자열, 일반 문자열을
 모두 받을 수 있고 PostgreSQL/pgvector 검색 결과를 근거로 LLM 답변을 반환합니다.
+복사해서 실행할 수 있는 정상·스택트레이스·입력 오류별 curl 명령은
+[외부 API curl 테스트 문서](EXTERNAL_ANSWER_CURL_TEST.md)를 참고하세요.
 
 ```bash
 # JSON 객체: 검색 필터와 결과 제한도 함께 전달 가능
@@ -286,8 +288,11 @@ curl -X POST http://서버주소:8300/api/v1/external/answer \
   }'
 ```
 
-응답에는 `answer`, `generation_status`, `results`가 포함됩니다. `results`는 답변에 사용한
-문서 청크와 자산·버전·페이지 등의 출처 정보입니다. 스택트레이스로 판별되면 추가로
+JSON 요청에서 `include_chunks=true`(기본값)를 사용하면 응답에 `answer`,
+`generation_status`, `results`가 포함됩니다. `false`이면 동일하게 검색 청크로 LLM 답변을
+생성하되 HTTP 응답에서 `results`만 제외합니다. 응답의 `chunks_included`로 실제 반환 여부를
+확인할 수 있습니다. `results`는 답변에 사용한 문서 청크와 자산·버전·페이지 등의 출처
+정보입니다. 스택트레이스로 판별되면 추가로
 `request_type=stack_trace`와 `stack_trace_analysis`가 반환됩니다. 분석 결과에는 fingerprint,
 주 예외, 최하위 원인, 오류 코드, 전체 호출 프레임 및 애플리케이션 호출 프레임이 포함됩니다.
 원문을 `query` 또는 `text/plain`으로 직접 보내도 자동 판별되지만, 외부 시스템 연동에서는
@@ -296,6 +301,31 @@ curl -X POST http://서버주소:8300/api/v1/external/answer \
 답변 근거에 JAR 디컴파일 소스가 포함되면 `notices`와 `answer` 본문에 원본 소스 라인
 번호와 디컴파일 결과의 라인 범위가 다를 수 있다는 안내가 함께 반환됩니다. 이 경우
 라인 번호보다 패키지·클래스·메서드를 우선 기준으로 확인합니다.
+
+실행 중인 외부 endpoint의 지원 입력·오류 응답을 한 번에 확인하려면 표준 라이브러리 기반
+테스트 스크립트를 사용합니다. 기본 실행은 12개 케이스를 검사하며, 등록 문서가 반드시
+검색되어야 하는 인수시험에서는 실제 문서의 고유 문구를 `--query`에 지정하고
+`--expect-results`를 추가합니다.
+
+```bash
+cd /mnt/appl/ecm-rag
+set -a
+source .env
+set +a
+
+# 케이스 목록만 확인
+"$ECM_RAG_PYTHON" scripts/test_external_answer.py --list
+
+# 전체 계약 시험
+"$ECM_RAG_PYTHON" scripts/test_external_answer.py \
+  --base-url http://127.0.0.1:8300
+
+# 등록 자료 검색까지 필수 확인
+"$ECM_RAG_PYTHON" scripts/test_external_answer.py \
+  --base-url http://127.0.0.1:8300 \
+  --query "실제로 등록한 문서의 고유 문구" \
+  --expect-results
+```
 
 로그인부터 검색까지 한 번에 확인하려면 API 호출 예제를 실행합니다. 비밀번호는 명령행
 인자 대신 환경변수 또는 보안 입력으로 전달합니다.

@@ -668,6 +668,9 @@ PY
 
 ### 14.3 무인증 내부망 질의 API
 
+전체 curl 테스트 케이스와 기대 HTTP 상태는
+[`EXTERNAL_ANSWER_CURL_TEST.md`](EXTERNAL_ANSWER_CURL_TEST.md)에 정리되어 있습니다.
+
 ```bash
 curl -sS -X POST http://127.0.0.1:8300/api/v1/external/answer \
   -H 'Content-Type: application/json' \
@@ -696,6 +699,30 @@ curl -sS -X POST http://127.0.0.1:8300/api/v1/external/answer \
 응답의 분석 정보만으로 장애를 확정하지 말고 `results` 출처와 원문을 함께 확인합니다.
 JAR 디컴파일 소스가 검색 근거로 사용되면 `notices`와 답변 본문에 원본 라인 번호와
 디컴파일 결과의 라인 범위가 다를 수 있다는 안내가 표시됩니다.
+
+외부 API의 전체 입력 계약은 추가 패키지가 필요 없는 실호출 스크립트로 확인합니다.
+
+```bash
+cd /mnt/appl/ecm-rag
+set -a
+source .env
+set +a
+
+"$ECM_RAG_PYTHON" scripts/test_external_answer.py \
+  --base-url http://127.0.0.1:8300 \
+  --query "등록 문서의 고유 검색 문구" \
+  --expect-results
+```
+
+스크립트는 JSON 객체·JSON 문자열·`text/plain`, 명시적·자동 스택트레이스와 함께 빈
+본문, 손상 JSON, JSON 배열, 잘못된 stack trace 타입, limit 범위 초과, 16 KiB 초과를
+검사합니다. 정상 질문의 `generation_status`는 모델과 자료 상태에 따라 `completed`,
+`unavailable`, `out_of_scope` 중 하나이며 `--expect-results`를 사용한 케이스는 결과가
+비어 있으면 실패로 판정합니다.
+
+JSON의 `include_chunks`를 생략하거나 `true`로 보내면 `results` 청크가 포함됩니다.
+`false`로 보내면 검색과 LLM 생성 과정에서는 동일한 청크를 사용하지만 응답에서
+`results`만 제외하며, `chunks_included=false`로 선택 결과를 표시합니다.
 
 ### 14.4 브라우저 화면
 

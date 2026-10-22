@@ -354,6 +354,12 @@ JSON 객체·JSON 문자열·일반 문자열을 지원하며 요청 본문은 1
 `request_type`, 필요 시 `stack_trace_analysis`를 포함합니다. 무인증 endpoint이므로
 운영 배포에서는 방화벽/reverse proxy로 사내 허용 대역만 접근시켜야 합니다.
 
+JSON 요청의 `include_chunks`는 응답에 검색 근거를 포함할지 결정합니다. 생략하거나
+`true`이면 `results`와 `chunks_included=true`를 반환합니다. `false`이면 검색 결과를
+내부 LLM 문맥으로는 동일하게 사용하지만 응답의 `results`를 제거하고
+`chunks_included=false`를 반환합니다. `generation_status`, `notices`, 스택트레이스 분석은
+두 방식 모두 유지됩니다.
+
 ## 7. 유형별 worker 처리
 
 | Asset 유형/확장자 | 파서 | 주요 산출물 |

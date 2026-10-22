@@ -96,6 +96,14 @@ class ChatRequest(SearchRequest):
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
 
 
+class ExternalAnswerRequest(ChatRequest):
+    """내부 시스템용 답변 요청과 검색 청크 반환 여부를 정의한다."""
+
+    # false여도 검색과 LLM 답변 생성에는 청크를 사용한다. 단지 HTTP 응답에서 원문
+    # 청크 배열을 제외해 연동 트래픽과 불필요한 원문 노출을 줄인다.
+    include_chunks: bool = True
+
+
 class AdminChunkCreate(BaseModel):
     """관리자 화면에서 수동으로 생성할 검색 청크와 pgvector 입력 계약."""
 

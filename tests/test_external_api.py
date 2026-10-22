@@ -79,6 +79,19 @@ class ExternalQuestionParsingTests(unittest.TestCase):
         self.assertIn("com.company.OrderService.load", request.query)
         self.assertIn("원인과 조치 방법", request.query)
 
+    def test_external_request_defaults_to_including_chunks(self):
+        request, _ = prepare_external_answer(
+            b'{"query":"document question"}', "application/json"
+        )
+        self.assertTrue(request.include_chunks)
+
+    def test_external_request_accepts_answer_only_mode(self):
+        request, _ = prepare_external_answer(
+            b'{"query":"document question","include_chunks":false}',
+            "application/json",
+        )
+        self.assertFalse(request.include_chunks)
+
     def test_plain_stack_trace_is_detected_without_json_wrapper(self):
         request, analysis = prepare_external_answer(
             (
@@ -119,6 +132,29 @@ class ExternalAnswerRouteTests(unittest.IsolatedAsyncioTestCase):
             response["stack_trace_analysis"]["primary_exception"],
             "java.lang.IllegalStateException",
         )
+        self.assertTrue(response["chunks_included"])
+
+    async def test_answer_only_response_omits_results(self):
+        class RequestStub:
+            headers = {"content-type": "application/json"}
+
+            async def body(self):
+                return b'{"query":"document question","include_chunks":false}'
+
+        with patch(
+            "service.routes.external.answer_documents",
+            return_value={
+                "answer": "문서 근거 답변입니다.",
+                "generation_status": "completed",
+                "notices": [],
+                "results": [{"chunk_id": "internal-result"}],
+            },
+        ):
+            response = await answer(RequestStub())
+
+        self.assertEqual(response["request_type"], "question")
+        self.assertFalse(response["chunks_included"])
+        self.assertNotIn("results", response)
 
 
 if __name__ == "__main__":

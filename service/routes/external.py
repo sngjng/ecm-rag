@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
 
 from service.answering import answer_documents
-from service.schemas import ChatRequest
+from service.schemas import ChatRequest, ExternalAnswerRequest
 from service.stacktrace import analyze_stack_trace, build_stack_trace_query
 
 
@@ -68,7 +68,7 @@ def parse_external_question(body: bytes, content_type: str) -> ChatRequest:
 
 def prepare_external_answer(
     body: bytes, content_type: str
-) -> tuple[ChatRequest, dict | None]:
+) -> tuple[ExternalAnswerRequest, dict | None]:
     """외부 요청을 검색용 질문과 선택적인 스택트레이스 분석 결과로 변환한다."""
     payload = _parse_external_payload(body, content_type)
     trace = payload.pop("stack_trace", None)
@@ -89,7 +89,7 @@ def prepare_external_answer(
             payload.get("query") if trace is not None else None,
         )
     try:
-        return ChatRequest.model_validate(payload), analysis
+        return ExternalAnswerRequest.model_validate(payload), analysis
     except ValidationError as exc:
         raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
 
@@ -109,6 +109,12 @@ async def answer(request: Request):
     question, analysis = prepare_external_answer(body, content_type)
 
     response = answer_documents(question)
+    # 검색 청크는 항상 내부 답변 생성에 사용한다. 호출자가 answer-only 형식을 요청하면
+    # 생성이 끝난 뒤 HTTP payload에서 results만 제외한다. 상태와 notices는 LLM 장애 및
+    # 디컴파일 주의사항을 호출 시스템이 판단하는 데 필요하므로 그대로 유지한다.
+    if not question.include_chunks:
+        response.pop("results", None)
+    response["chunks_included"] = question.include_chunks
     if analysis and analysis["detected"]:
         response["request_type"] = "stack_trace"
         response["stack_trace_analysis"] = analysis
