@@ -111,6 +111,40 @@
         gap: 9px;
       }
 
+      .upload-link {
+        display: inline-flex;
+        gap: 7px;
+        align-items: center;
+        padding: 8px 12px;
+        border: 1px solid rgba(68, 86, 232, 0.22);
+        border-radius: 10px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-size: 11px;
+        font-weight: 800;
+        text-decoration: none;
+        transition:
+          border-color 0.18s ease,
+          background 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      .upload-link:hover {
+        border-color: rgba(68, 86, 232, 0.48);
+        background: rgba(68, 86, 232, 0.14);
+        transform: translateY(-1px);
+      }
+
+      .upload-link:focus-visible {
+        outline: 3px solid rgba(68, 86, 232, 0.22);
+        outline-offset: 2px;
+      }
+
+      .upload-link svg {
+        width: 16px;
+        height: 16px;
+      }
+
       .user-chip {
         gap: 8px;
         padding: 6px 10px;
@@ -634,6 +668,14 @@
           display: none;
         }
 
+        .upload-link {
+          padding: 8px;
+        }
+
+        .upload-link__label {
+          display: none;
+        }
+
         .page {
           padding: 42px 16px 60px;
         }
@@ -728,6 +770,23 @@
           <span class="brand__label">IDC본부. 문서자산 조회</span>
         </div>
         <div class="topbar__actions">
+          <a
+            class="upload-link"
+            href="spl_upload.html"
+            aria-label="문서 업로드 화면으로 이동"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M12 16V4m0 0L7 9m5-5 5 5"></path>
+              <path d="M5 15v4h14v-4"></path>
+            </svg>
+            <span class="upload-link__label">문서 업로드</span>
+          </a>
           <div class="user-chip">
             <span id="user-avatar" class="user-chip__avatar">사</span>
             <span class="user-chip__text">

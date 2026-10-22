@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `upload.html`과 `spl_upload.html` 우측 처리 파이프라인 아래에 `search.html`로 이동하는
+  문서 조회 메뉴 추가
+- `search.html` 상단에 기본 업로드 화면인 `spl_upload.html`로 이동하는 문서 업로드 메뉴 추가
+- JAR 디컴파일 소스가 답변 근거에 포함될 때 원본 스택트레이스 라인과 디컴파일 결과의
+  라인 범위가 다를 수 있음을 `notices` 및 답변 본문에 자동 표시
 - 서로 다른 JAR·문서의 유사한 이름으로 발생하는 오탐을 막기 위해 중복 후보 조건에서
   제목 유사도를 제거하고 해시·경로·파일명·정확한 제목 일치만 사용
 - 무인증 내부망 `/api/v1/external/answer`에서 JSON `stack_trace`, query 내 trace 및

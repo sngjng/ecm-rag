@@ -9,6 +9,25 @@ from service.schemas import ChatRequest
 from service.search import search
 
 
+DECOMPILED_LINE_NOTICE = (
+    "참고: 답변 근거에 JAR 디컴파일 소스가 포함되어 있어 스택트레이스의 원본 소스 "
+    "라인 번호와 표시된 라인 범위가 다를 수 있습니다. 패키지·클래스·메서드를 기준으로 "
+    "확인해 주세요."
+)
+
+
+def _uses_decompiled_source(results: list[dict[str, Any]]) -> bool:
+    """검색 근거 중 CFR로 복원한 JAR 소스가 포함됐는지 확인한다."""
+    for result in results:
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict) and metadata.get("decompiled") is True:
+            return True
+        # 과거 데이터에 metadata 표시가 없더라도 저장 kind로 안전하게 판별한다.
+        if str(result.get("kind") or "").startswith("decompiled_code"):
+            return True
+    return False
+
+
 def answer_documents(request: ChatRequest) -> dict[str, Any]:
     """질문을 검색한 뒤 근거 기반 LLM 답변과 출처를 함께 반환한다.
 
@@ -37,6 +56,7 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
                 "본 서비스는 등록 문서와 관련된 질문에만 답변할 수 있습니다."
             ),
             "generation_status": "out_of_scope",
+            "notices": [],
             "results": [],
         }
     # 검색 성공과 LLM 장애를 분리한다. LLM만 실패하면 HTTP 오류로 근거까지 버리지 않고
@@ -50,8 +70,15 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
             "아래 검색 결과에서 원문 내용을 확인해 주세요."
         )
         generation_status = "unavailable"
+    notices = []
+    if _uses_decompiled_source(results):
+        notices.append(DECOMPILED_LINE_NOTICE)
+        # 브라우저와 단순 연동 시스템이 notices 필드를 별도로 표시하지 않아도 사용자가
+        # 라인 번호의 한계를 놓치지 않도록 답변 본문에도 같은 안내를 붙인다.
+        answer = f"{answer}\n\n{DECOMPILED_LINE_NOTICE}"
     return {
         "answer": answer,
         "generation_status": generation_status,
+        "notices": notices,
         "results": results,
     }

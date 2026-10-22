@@ -666,6 +666,8 @@ curl -sS -X POST http://127.0.0.1:8300/api/v1/external/answer \
 응답의 `stack_trace_analysis`에는 `fingerprint`, `primary_exception`, `root_cause`,
 `error_codes`, `frames`, `application_frames`가 포함됩니다. 원문 최대 크기는 16 KiB이며,
 응답의 분석 정보만으로 장애를 확정하지 말고 `results` 출처와 원문을 함께 확인합니다.
+JAR 디컴파일 소스가 검색 근거로 사용되면 `notices`와 답변 본문에 원본 라인 번호와
+디컴파일 결과의 라인 범위가 다를 수 있다는 안내가 표시됩니다.
 
 ### 14.4 브라우저 화면
 

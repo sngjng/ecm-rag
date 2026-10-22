@@ -637,6 +637,67 @@
         background: var(--success);
       }
 
+      .search-menu {
+        display: grid;
+        grid-template-columns: 40px minmax(0, 1fr) 20px;
+        gap: 12px;
+        align-items: center;
+        padding: 16px 18px;
+        border: 1px solid rgba(68, 86, 232, 0.2);
+        border-radius: var(--radius-lg);
+        color: var(--text);
+        background: linear-gradient(135deg, #ffffff, var(--surface-accent));
+        box-shadow: 0 14px 36px rgba(28, 39, 67, 0.05);
+        text-decoration: none;
+        transition:
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          transform 0.18s ease;
+      }
+      .search-menu:hover {
+        border-color: rgba(68, 86, 232, 0.48);
+        box-shadow: 0 16px 38px rgba(68, 86, 232, 0.12);
+        transform: translateY(-2px);
+      }
+      .search-menu:focus-visible {
+        outline: 3px solid rgba(68, 86, 232, 0.22);
+        outline-offset: 3px;
+      }
+      .search-menu__icon {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border-radius: 12px;
+        color: #ffffff;
+        background: var(--primary);
+      }
+      .search-menu__icon svg,
+      .search-menu__arrow {
+        width: 20px;
+        height: 20px;
+      }
+      .search-menu__title,
+      .search-menu__description {
+        display: block;
+      }
+      .search-menu__title {
+        font-size: 13px;
+        font-weight: 800;
+      }
+      .search-menu__description {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .search-menu__arrow {
+        color: var(--primary);
+        transition: transform 0.18s ease;
+      }
+      .search-menu:hover .search-menu__arrow {
+        transform: translateX(3px);
+      }
+
       .status-card {
         display: none;
       }
@@ -1546,6 +1607,40 @@
               </li>
             </ol>
           </section>
+
+          <a
+            class="search-menu"
+            href="search.html"
+            aria-label="등록된 문서자산 조회 화면으로 이동"
+          >
+            <span class="search-menu__icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
+            </span>
+            <span>
+              <span class="search-menu__title">문서 조회</span>
+              <span class="search-menu__description"
+                >등록된 문서와 소스를 검색합니다.</span
+              >
+            </span>
+            <svg
+              class="search-menu__arrow"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </a>
 
           <section
             id="status-card"
