@@ -8,7 +8,7 @@
 - Windows 11 64-bit
 - WSL 2
 - Ubuntu 24.04
-- Docker Desktop의 WSL 2 backend
+- Docker Desktop의 WSL 2 backend 또는 Ubuntu WSL 네이티브 PostgreSQL
 - Python 3.11
 - PostgreSQL 17 + pgvector
 - FastAPI API 프로세스와 독립 worker 프로세스
@@ -27,8 +27,8 @@
 | GPU | 불필요 | BGE-M3/reranker 로컬 실행 시 NVIDIA GPU 권장 |
 | BIOS/UEFI | 가상화 활성화 | 가상화 활성화 |
 
-Docker Desktop은 조직 규모와 용도에 따라 유료 구독이 필요할 수 있으므로 사내 라이선스
-정책을 먼저 확인합니다.
+Docker 방식은 Docker Desktop 라이선스 정책을 먼저 확인합니다. Docker Desktop을 사용할
+수 없으면 9절과 16절의 Ubuntu WSL 네이티브 PostgreSQL 방식을 선택할 수 있습니다.
 
 ## 2.1 사내망 설치 방식 먼저 결정
 
@@ -110,7 +110,7 @@ git --version
 실제 개발 명령은 WSL 내부 Git을 사용하지만 Windows에서도 저장소 상태를 확인할 수 있도록
 설치합니다.
 
-### 4.3 Docker Desktop
+### 4.3 Docker Desktop(Docker DB 방식을 선택할 때만)
 
 ```powershell
 winget install --id Docker.DockerDesktop -e --source winget
@@ -266,20 +266,51 @@ python -c "import fastapi, psycopg, pgvector, yaml; print('service dependencies:
 
 ## 9. PostgreSQL 17 + pgvector 테스트 DB 생성
 
-### 9.1 이미지 다운로드
+다음 두 방식 중 하나를 선택합니다. 애플리케이션 기능과 DB 스키마는 같으며 접속 포트와
+운영 방법만 다릅니다. 두 DB를 동시에 실행할 수도 있지만 테스트할 때는 `RAG_DB_DSN`이
+어느 DB를 가리키는지 반드시 확인합니다.
+
+| 방식 | 실행 위치 | 접속 주소 | 적합한 경우 |
+|---|---|---|---|
+| Docker | Docker Desktop Linux container | `127.0.0.1:55432` | 격리와 초기화가 쉬운 기본 테스트 |
+| WSL 네이티브 | Ubuntu 24.04 WSL 서비스 | `127.0.0.1:5432` | Docker를 사용하지 않거나 폐쇄망 OS 패키지 설치를 검증할 때 |
+
+Windows용 PostgreSQL을 별도로 설치하는 구성은 이 문서의 검증 범위에 포함하지 않습니다.
+
+### 9.1 방식 A: Docker 컨테이너
+
+#### 9.1.1 이미지 다운로드
 
 ```bash
 docker pull pgvector/pgvector:pg17
 ```
 
-### 9.2 테스트 컨테이너 실행
+#### 9.1.2 테스트 컨테이너 실행
 
-아래 계정과 비밀번호는 로컬 테스트 전용입니다. 운영환경에서 사용하지 않습니다.
+DB 데이터는 컨테이너 writable layer가 아니라 WSL 로컬 경로
+`$HOME/ecm-rag-data/postgresql17`에 저장합니다. 필요하면 `ECM_RAG_PGDATA`만 다른 절대경로로
+변경할 수 있지만, 성능과 Linux 권한 호환성을 위해 `/mnt/c`보다 WSL Linux filesystem
+경로를 권장합니다.
+
+이미지를 이용해 bind mount 디렉터리의 소유자를 이미지 내부 `postgres` 계정으로 맞춘 뒤
+컨테이너를 실행합니다. 아래 계정과 비밀번호는 로컬 테스트 전용입니다.
+동일한 이름의 기존 컨테이너가 있다면 아래 `docker run`을 바로 실행하지 말고, 이 절 뒤쪽의
+기존 DB 백업·복원 절차를 먼저 확인합니다.
 
 ```bash
+export ECM_RAG_PGDATA="$HOME/ecm-rag-data/postgresql17"
+mkdir -p "$ECM_RAG_PGDATA"
+
+docker run --rm \
+  --user root \
+  --mount type=bind,source="$ECM_RAG_PGDATA",target=/var/lib/postgresql/data \
+  pgvector/pgvector:pg17 \
+  chown -R postgres:postgres /var/lib/postgresql/data
+
 docker run -d \
   --name ecm-rag-it-postgres \
   -p 127.0.0.1:55432:5432 \
+  --mount type=bind,source="$ECM_RAG_PGDATA",target=/var/lib/postgresql/data \
   -e POSTGRES_USER=ragtest \
   -e POSTGRES_PASSWORD=ragtest_password \
   -e POSTGRES_DB=ragdb \
@@ -295,17 +326,56 @@ docker run -d \
 ```bash
 docker ps --filter name=ecm-rag-it-postgres
 docker inspect --format '{{.State.Health.Status}}' ecm-rag-it-postgres
+docker inspect --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' \
+  ecm-rag-it-postgres
 ```
 
-결과가 `healthy`여야 합니다.
+결과가 `healthy`여야 하고 mount 출력의 대상이 `/var/lib/postgresql/data`여야 합니다. 컨테이너를
+삭제하거나 다시 만들어도 같은 `ECM_RAG_PGDATA` 경로를 mount하면 기존 DB가 유지됩니다.
 
-이미 컨테이너가 있고 중지된 상태라면 새로 만들지 않고 시작합니다.
+이미 컨테이너가 있고 중지된 상태이며 위 `docker inspect`에서 동일한 bind mount가 확인되면
+새로 만들지 않고 시작합니다.
 
 ```bash
 docker start ecm-rag-it-postgres
 ```
 
-### 9.3 신규 DB 스키마 적용
+기존 컨테이너에 `/var/lib/postgresql/data` bind mount가 없다면 실행 중인 컨테이너에 mount를
+추가할 수 없습니다. 기존 DB를 보존해야 하는 경우 먼저 host 쪽에 논리 백업을 생성합니다.
+
+```bash
+mkdir -p "$HOME/ecm-rag-data/migration"
+export ECM_RAG_DB_BACKUP="$HOME/ecm-rag-data/migration/ragdb-before-bind-$(date +%Y%m%d-%H%M%S).dump"
+
+docker exec ecm-rag-it-postgres \
+  pg_dump -U ragtest -d ragdb --format=custom \
+  > "$ECM_RAG_DB_BACKUP"
+test -s "$ECM_RAG_DB_BACKUP"
+printf 'DB 논리 백업: %s\n' "$ECM_RAG_DB_BACKUP"
+```
+
+백업 파일이 존재하고 크기가 0보다 큰 것을 확인한 다음 기존 컨테이너를 제거하고, 이 절의
+디렉터리 준비·권한 설정·`docker run` 명령으로 bind-mount 컨테이너를 새로 만듭니다. 새
+컨테이너가 `healthy`가 되면 복원합니다.
+
+```bash
+docker rm -f ecm-rag-it-postgres
+
+# 위의 ECM_RAG_PGDATA 준비, 권한 설정, docker run 명령을 다시 실행한 후 복원
+docker exec -i ecm-rag-it-postgres \
+  pg_restore -U ragtest -d ragdb --clean --if-exists --no-owner \
+  < "$ECM_RAG_DB_BACKUP"
+
+docker exec ecm-rag-it-postgres \
+  psql -U ragtest -d ragdb -c \
+  "SELECT count(*) AS rag_table_count FROM pg_tables WHERE schemaname='rag';"
+```
+
+복원과 애플리케이션 테스트가 끝날 때까지 백업 파일과 기존 Docker volume을 삭제하거나
+`docker volume prune`하지 않습니다. 기존 데이터가 없으면 백업·복원 과정 없이 컨테이너만
+제거하고 bind-mount 방식으로 새로 만들 수 있습니다.
+
+#### 9.1.3 신규 DB 스키마 적용
 
 최신 `001_pgvector.sql`에는 Asset, Version, queue, chunk, pgvector, 로그인 세션 및 업로드
 감사 테이블이 포함됩니다.
@@ -351,9 +421,143 @@ docker exec ecm-rag-it-postgres \
   -c "SELECT tablename FROM pg_tables WHERE schemaname='rag' ORDER BY tablename;"
 ```
 
+### 9.2 방식 B: Ubuntu 24.04 WSL 네이티브 설치
+
+이 방식은 PostgreSQL을 Windows가 아니라 이 문서의 규정 Linux 환경인 Ubuntu 24.04
+WSL 안에 설치합니다. 폐쇄망 대상 PC에서는 외부 PGDG 저장소에 접속하지 않고, 16.4.2절에서
+동일 환경으로 준비한 `.deb` 묶음을 사용합니다.
+
+#### 9.2.1 대상 OS와 반입 파일 검증
+
+```bash
+. /etc/os-release
+printf 'distribution=%s codename=%s architecture=%s\n' \
+  "$PRETTY_NAME" "$VERSION_CODENAME" "$(dpkg --print-architecture)"
+test "$VERSION_CODENAME" = "noble"
+
+cd /반입경로/postgresql17-native
+sha256sum --check SHA256SUMS
+```
+
+Ubuntu codename은 `noble`, 일반 Intel/AMD PC의 architecture는 `amd64`여야 합니다.
+ARM64 PC에서는 준비 PC와 대상 PC가 모두 `arm64`여야 합니다. 체크섬이 하나라도 실패하면
+설치하지 않고 반입 파일을 다시 준비합니다.
+
+#### 9.2.2 오프라인 `.deb` 설치
+
+16.4.2절의 절차로 체크섬 검증, 임시 local APT source 등록과 다음 세 패키지 설치를
+완료합니다. `dpkg -i`만 단독 실행하면 의존성 해소가 누락될 수 있으므로 사용하지 않습니다.
+
+- `postgresql-17`
+- `postgresql-client-17`
+- `postgresql-17-pgvector`
+
+설치가 외부 저장소 접속을 시도하거나 의존 패키지를 찾지 못하면 반입 묶음이 대상 PC의
+Ubuntu 기준과 일치하지 않거나 누락된 것입니다. 임의 외부 URL을 허용하지 말고 준비
+PC에서 묶음을 다시 생성합니다.
+
+설치 버전과 cluster를 확인합니다.
+
+```bash
+/usr/lib/postgresql/17/bin/postgres --version
+/usr/lib/postgresql/17/bin/psql --version
+dpkg-query -W \
+  postgresql-17 \
+  postgresql-client-17 \
+  postgresql-17-pgvector
+pg_lsclusters
+```
+
+세 패키지가 모두 설치되고 server/client 주 버전이 17이어야 합니다.
+`pg_lsclusters`에 `17 main`이 없다면 다른 PostgreSQL 주 버전의 기존 cluster와 포트 충돌이
+없는지 확인한 뒤 테스트용 cluster를 생성합니다.
+
+```bash
+sudo pg_createcluster 17 main --start
+pg_lsclusters
+```
+
+#### 9.2.3 서비스 시작
+
+```bash
+sudo systemctl enable --now postgresql
+pg_isready -h 127.0.0.1 -p 5432
+```
+
+`pg_isready`가 `accepting connections`를 반환해야 합니다. WSL에서 systemd를 사용할 수
+없다는 오류가 발생하면 `/etc/wsl.conf`에 다음을 설정한 뒤 Windows PowerShell에서
+`wsl --shutdown`을 실행하고 Ubuntu를 다시 엽니다.
+
+```ini
+[boot]
+systemd=true
+```
+
+일회성 확인만 필요하면 `sudo service postgresql start`도 사용할 수 있지만, 재시작 후
+자동 기동 여부는 별도로 확인합니다.
+
+#### 9.2.4 테스트 Role·Database·extension 생성
+
+아래 계정과 비밀번호는 로컬 테스트 전용입니다. 운영환경에서 재사용하지 않습니다.
+
+```bash
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE ragtest LOGIN PASSWORD 'ragtest_password';
+CREATE DATABASE ragdb OWNER ragtest ENCODING 'UTF8';
+SQL
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d ragdb <<'SQL'
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+SQL
+```
+
+Role 또는 Database가 이미 있다는 오류가 발생하면 기존 로컬 테스트 DB를 계속 사용할지,
+15.2절에 따라 초기화할지 먼저 결정합니다. 다른 용도의 동일 이름 DB를 삭제하지 않습니다.
+명령에 표시된 비밀번호는 로컬 통합 테스트 전용이며, 실제 업무 데이터나 운영 서버에서는
+승인된 비밀정보 관리 방식과 별도 비밀번호를 사용합니다.
+
+#### 9.2.5 신규 DB 스키마 적용
+
+```bash
+cd ~/workspace/ecm-rag
+
+PGPASSWORD=ragtest_password \
+  psql -h 127.0.0.1 -p 5432 -U ragtest -d ragdb \
+  -v ON_ERROR_STOP=1 \
+  -f sql/001_pgvector.sql
+```
+
+기본 테스트 profile의 embedding 차원은 1024이며 SQL의 `vector(1024)`와 일치합니다.
+다른 차원을 사용할 때는 YAML의 `models.embedding.dimension`을 변경한 뒤
+`scripts/render_pgvector_sql.py`로 설치 SQL을 렌더링합니다.
+
+검증:
+
+```bash
+PGPASSWORD=ragtest_password \
+  psql -h 127.0.0.1 -p 5432 -U ragtest -d ragdb \
+  -v ON_ERROR_STOP=1 <<'SQL'
+SHOW server_version;
+SELECT extname, extversion
+FROM pg_extension
+WHERE extname IN ('vector', 'pg_trgm')
+ORDER BY extname;
+SELECT tablename
+FROM pg_tables
+WHERE schemaname = 'rag'
+ORDER BY tablename;
+SELECT vector_dims('[1,2,3]'::vector) AS test_dimensions;
+SQL
+```
+
+서버 주 버전 17, 두 extension, `rag` 스키마 테이블과 `test_dimensions=3`을 확인합니다.
+
 ## 10. 테스트 환경 변수
 
-각 터미널을 새로 열 때 다음 값을 설정합니다.
+각 터미널을 새로 열 때 다음 값을 설정합니다. DB 방식에 따라 DSN 포트만 다릅니다.
+
+Docker DB:
 
 ```bash
 cd ~/workspace/ecm-rag
@@ -361,6 +565,23 @@ source .venv/bin/activate
 
 export RAG_PROFILE=test
 export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
+```
+
+WSL 네이티브 DB:
+
+```bash
+cd ~/workspace/ecm-rag
+source .venv/bin/activate
+
+export RAG_PROFILE=test
+export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:5432/ragdb'
+```
+
+두 DB를 동시에 실행한 경우 현재 터미널이 선택한 서버를 확인합니다.
+
+```bash
+psql "$RAG_DB_DSN" -Atc \
+  "SELECT current_database(), current_user, inet_server_port(), current_setting('server_version');"
 ```
 
 `test` profile의 특징:
@@ -377,12 +598,11 @@ export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
 
 ## 11. 자동 테스트
 
+같은 터미널에서 먼저 10절의 Docker 또는 WSL 네이티브 환경변수 블록을 실행합니다.
+
 ```bash
 cd ~/workspace/ecm-rag
 source .venv/bin/activate
-
-export RAG_PROFILE=test
-export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
 
 python -m compileall -q service tests
 python -m pytest -q
@@ -391,22 +611,28 @@ python -m pytest -q
 모든 테스트가 passed여야 합니다. 실패 시 다음 순서로 확인합니다.
 
 ```bash
+# Docker DB를 선택한 경우
 docker ps --filter name=ecm-rag-it-postgres
 docker logs --tail 100 ecm-rag-it-postgres
+
+# WSL 네이티브 DB를 선택한 경우
+pg_lsclusters
+sudo journalctl -u postgresql --no-pager -n 100
+
+psql "$RAG_DB_DSN" -c "SELECT version();"
 python --version
 git status
 ```
 
 ## 12. 서비스 수동 실행
 
+각 터미널에서 프로세스를 실행하기 전에 10절의 동일한 DB 방식 환경변수 블록을 실행합니다.
+
 ### 12.1 터미널 1: FastAPI
 
 ```bash
 cd ~/workspace/ecm-rag
 source .venv/bin/activate
-
-export RAG_PROFILE=test
-export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
 
 python -m uvicorn service.api:app \
   --host 0.0.0.0 \
@@ -418,9 +644,6 @@ python -m uvicorn service.api:app \
 ```bash
 cd ~/workspace/ecm-rag
 source .venv/bin/activate
-
-export RAG_PROFILE=test
-export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
 
 python -m service.worker
 ```
@@ -530,26 +753,60 @@ export RAG_DRM_COMMAND='/경로/decrypt-wrapper'
 
 서비스 API와 worker는 각 터미널에서 `Ctrl+C`로 종료합니다.
 
-DB 중지:
+### 15.1 Docker DB
+
+중지와 재시작:
 
 ```bash
 docker stop ecm-rag-it-postgres
 ```
 
-DB 재시작:
-
 ```bash
 docker start ecm-rag-it-postgres
 ```
 
-테스트 DB를 완전히 다시 만들 때만 다음을 실행합니다. 컨테이너 내부 데이터는 복구되지
-않으므로 운영 DB에는 절대 사용하지 않습니다.
+컨테이너만 제거하려면 다음 명령을 실행합니다. bind mount의 DB 데이터는 삭제되지 않습니다.
 
 ```bash
 docker rm -f ecm-rag-it-postgres
 ```
 
-그 다음 이 문서의 **9. PostgreSQL 17 + pgvector 테스트 DB 생성**부터 다시 진행합니다.
+DB 데이터까지 초기화하려면 컨테이너 제거 후 정확한 로컬 데이터 디렉터리를 타임스탬프가
+붙은 백업 경로로 이동합니다. 운영 DB 또는 다른 경로에는 실행하지 않습니다.
+
+```bash
+export ECM_RAG_PGDATA="$HOME/ecm-rag-data/postgresql17"
+export ECM_RAG_PGDATA_BACKUP="$HOME/ecm-rag-data/postgresql17.backup-$(date +%Y%m%d-%H%M%S)"
+
+test "$ECM_RAG_PGDATA" = "$HOME/ecm-rag-data/postgresql17"
+test -d "$ECM_RAG_PGDATA"
+mv -- "$ECM_RAG_PGDATA" "$ECM_RAG_PGDATA_BACKUP"
+printf '기존 DB 데이터 백업: %s\n' "$ECM_RAG_PGDATA_BACKUP"
+```
+
+그 다음 9.1.2절부터 다시 진행합니다. 백업 디렉터리는 새 DB 검증이 끝난 후 보존 정책에 따라
+정리합니다.
+
+### 15.2 WSL 네이티브 DB
+
+서비스 중지·시작·상태 확인:
+
+```bash
+sudo systemctl stop postgresql
+sudo systemctl start postgresql
+sudo systemctl status postgresql --no-pager
+pg_lsclusters
+```
+
+테스트 DB와 Role을 완전히 초기화할 때만 다음을 실행합니다. `ragdb`의 모든 데이터가
+삭제되므로 운영 DB나 다른 사용자가 쓰는 DB에는 절대 실행하지 않습니다.
+
+```bash
+sudo -u postgres dropdb --if-exists ragdb
+sudo -u postgres dropuser --if-exists ragtest
+```
+
+그 다음 9.2.4절부터 다시 진행합니다. PostgreSQL 패키지까지 제거할 필요는 없습니다.
 
 ## 16. 외부 URL이 차단된 사내망 설치
 
@@ -573,12 +830,13 @@ docker rm -f ecm-rag-it-postgres
 - WSL 설치 패키지
 - Ubuntu 24.04 WSL 배포판
 - Git for Windows 설치 파일
-- Docker Desktop 설치 파일과 사내 라이선스 승인
+- Docker 방식을 선택한 경우 Docker Desktop 설치 파일과 사내 라이선스 승인
 - GPU 사용 시 승인된 NVIDIA Windows/WSL driver
 
-WSL과 Docker 설치 파일의 버전은 사내 표준 버전으로 고정하는 것이 좋습니다. Docker
-Desktop을 사용할 수 없으면 사내 표준 Linux VM 또는 Podman/서버 Docker 사용 여부를
-인프라 담당자와 먼저 결정해야 합니다.
+WSL과 선택한 DB 실행 방식의 버전은 사내 표준으로 고정합니다. Docker Desktop을 사용할
+수 없으면 이 문서의 WSL 네이티브 PostgreSQL 방식을 사용할 수 있습니다. WSL 자체가
+허용되지 않는 경우에는 사내 표준 Linux VM 또는 서버 DB 사용 여부를 인프라 담당자와
+먼저 결정해야 합니다.
 
 ### 16.3 GitHub 소스를 Git bundle로 준비
 
@@ -615,7 +873,11 @@ git switch <작업-브랜치>
 이후 변경분만 추가 반입할 때는 준비 PC에서 최신 bundle을 다시 만들거나 승인된 사내 Git
 서버를 사용합니다.
 
-### 16.4 PostgreSQL/pgvector Docker image 반입
+### 16.4 PostgreSQL 17·pgvector 오프라인 반입
+
+DB 실행 방식에 따라 16.4.1 또는 16.4.2 중 하나를 수행합니다.
+
+#### 16.4.1 Docker image 반입
 
 인터넷 연결 준비 PC:
 
@@ -634,8 +896,139 @@ docker load --input /반입경로/pgvector-pg17.tar
 docker image inspect pgvector/pgvector:pg17
 ```
 
-이미지를 load한 다음 9.2절의 `docker run`부터 실행합니다. 사내 Docker registry가 있으면
+이미지를 load한 다음 9.1.2절의 `docker run`부터 실행합니다. 사내 Docker registry가 있으면
 보안 검증된 이미지를 registry에 등록하고 사내 주소에서 pull하는 방식을 우선합니다.
+
+#### 16.4.2 WSL 네이티브 `.deb` 묶음 준비
+
+가장 안전한 방법은 사내 Ubuntu/PGDG mirror에서 승인된 패키지를 설치하는 것입니다. mirror가
+없다면 인터넷 연결 준비 PC에 **대상 PC와 같은 Windows WSL 버전, Ubuntu 24.04 image,
+CPU architecture 및 업데이트 수준**의 깨끗한 Ubuntu WSL 인스턴스를 별도로 준비합니다.
+이미 PostgreSQL이나 다른 개발 패키지가 많이 설치된 PC에서 수집하면 의존 `.deb`가 빠질 수
+있습니다.
+
+준비 PC의 Ubuntu 24.04 WSL에서 OS와 architecture를 기록합니다.
+
+```bash
+. /etc/os-release
+test "$VERSION_CODENAME" = "noble"
+dpkg --print-architecture
+uname -a
+```
+
+PostgreSQL 공식 PGDG 저장소를 준비 PC에만 등록합니다. 아래 키와 저장소 URL은 대상 폐쇄망
+PC에서 호출하지 않습니다.
+
+```bash
+sudo apt update
+sudo apt install -y curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+cat <<'EOF' | sudo tee /etc/apt/sources.list.d/pgdg.sources
+Types: deb
+URIs: https://apt.postgresql.org/pub/repos/apt
+Suites: noble-pgdg
+Architectures: amd64
+Components: main
+Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+EOF
+
+sudo apt update
+```
+
+ARM64 환경이면 `Architectures: amd64`를 `Architectures: arm64`로 바꾸고 대상 PC도 같은
+architecture인지 확인합니다.
+
+준비 PC가 아직 깨끗한 상태에서 PostgreSQL 17, 클라이언트, pgvector와 현재 설치되지 않은
+의존 패키지를 APT cache에 다운로드합니다.
+
+```bash
+sudo apt clean
+sudo apt-get install --download-only -y \
+  postgresql-17 \
+  postgresql-client-17 \
+  postgresql-17-pgvector
+
+mkdir -p ~/ecm-rag-offline/postgresql17-native/debs
+sudo cp /var/cache/apt/archives/*.deb \
+  ~/ecm-rag-offline/postgresql17-native/debs/
+sudo chown -R "$(id -u):$(id -g)" \
+  ~/ecm-rag-offline/postgresql17-native
+```
+
+`apt-get --download-only`는 준비 PC에 이미 설치된 의존 패키지를 다시 받지 않습니다. 따라서
+준비 PC는 대상 PC와 동일한 깨끗한 WSL image 및 업데이트 기준이어야 합니다. 이 조건을
+만족시킬 수 없으면 사내 APT mirror 또는 승인된 repository snapshot을 사용합니다.
+
+대상 PC가 인터넷 없이 APT 의존성을 계산할 수 있도록 준비 PC에서 flat repository index를
+생성합니다. 이 작업은 `.deb` 다운로드가 끝난 다음 수행합니다.
+
+```bash
+sudo apt install -y dpkg-dev
+cd ~/ecm-rag-offline/postgresql17-native/debs
+dpkg-scanpackages . /dev/null > Packages
+gzip -9c Packages > Packages.gz
+
+cd ..
+apt-cache policy \
+  postgresql-17 \
+  postgresql-client-17 \
+  postgresql-17-pgvector \
+  > PACKAGE_VERSIONS.txt
+find . -type f ! -name SHA256SUMS -print0 \
+  | sort -z \
+  | xargs -0 sha256sum \
+  > SHA256SUMS
+```
+
+최소 반입 구조는 다음과 같습니다.
+
+```text
+postgresql17-native/
+├── SHA256SUMS
+├── PACKAGE_VERSIONS.txt
+└── debs/
+    ├── Packages
+    ├── Packages.gz
+    ├── postgresql-17_*.deb
+    ├── postgresql-client-17_*.deb
+    ├── postgresql-17-pgvector_*.deb
+    └── 의존 패키지 *.deb
+```
+
+대상 폐쇄망 PC에서는 체크섬 검증 후 flat repository만을 명시적으로 사용합니다. 반입 경로는
+공백이 없는 절대경로를 사용합니다.
+
+```bash
+export ECM_RAG_PG_BUNDLE=/반입경로/postgresql17-native
+cd "$ECM_RAG_PG_BUNDLE"
+sha256sum --check SHA256SUMS
+
+printf 'deb [trusted=yes] file:%s/debs ./\n' "$ECM_RAG_PG_BUNDLE" \
+  | sudo tee /etc/apt/sources.list.d/ecm-rag-postgresql-local.list
+
+sudo apt-get \
+  -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ecm-rag-postgresql-local.list \
+  -o Dir::Etc::sourceparts=- \
+  update
+
+sudo apt-get \
+  -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ecm-rag-postgresql-local.list \
+  -o Dir::Etc::sourceparts=- \
+  install -y \
+  postgresql-17 \
+  postgresql-client-17 \
+  postgresql-17-pgvector
+
+sudo rm -f /etc/apt/sources.list.d/ecm-rag-postgresql-local.list
+```
+
+`trusted=yes`는 서명 검증을 생략하므로 승인된 반입 절차와 `SHA256SUMS` 검증을 완료한 이
+로컬 묶음에만 제한해서 사용합니다. 설치 후 9.2.2절의 버전 확인부터 계속합니다. 보안
+업데이트도 자동으로 내려오지 않으므로 준비 PC에서 동일 절차로 새 묶음을 만들고 정기적으로
+재반입해야 합니다.
 
 ### 16.5 uv와 Python 3.11 runtime 반입
 
@@ -762,6 +1155,10 @@ uv pip install \
 `build-essential`, `libgl1`, `libglib2.0-0`, `libgomp1`, `poppler-utils`, `tesseract-ocr`가
 포함된 사내 표준 WSL image를 만드는 방식을 권장합니다.
 
+PostgreSQL 17과 pgvector 네이티브 설치 패키지는 일반 OS 도구 묶음과 섞지 말고 16.4.2절의
+별도 flat repository 절차를 사용합니다. PostgreSQL 패키지 버전과 보안 패치 이력은
+`PACKAGE_VERSIONS.txt`와 반입 승인 기록으로 관리합니다.
+
 ### 16.8 모델과 외부 솔루션 artifact
 
 다음 파일은 Python wheelhouse나 Git 저장소에 자동으로 포함되지 않습니다.
@@ -805,7 +1202,13 @@ sha256sum --check SHA256SUMS
 ecm-rag-offline/
 ├── SHA256SUMS
 ├── ecm-rag.bundle
-├── pgvector-pg17.tar
+├── pgvector-pg17.tar                 # Docker DB 선택 시
+├── postgresql17-native/              # WSL 네이티브 DB 선택 시
+│   ├── SHA256SUMS
+│   ├── PACKAGE_VERSIONS.txt
+│   └── debs/
+│       ├── Packages.gz
+│       └── *.deb
 ├── uv
 ├── uvx
 ├── python-3.11-directory.txt
@@ -824,10 +1227,13 @@ ecm-rag-offline/
 ## 17. 최종 점검표
 
 - [ ] `wsl --list --verbose`에서 Ubuntu가 WSL 2로 표시됨
-- [ ] Ubuntu 터미널에서 `docker version` 성공
+- [ ] 선택한 DB 방식 확인: Docker 또는 Ubuntu WSL 네이티브
+- [ ] Docker 선택 시 `docker version` 성공 및 컨테이너 상태가 healthy
+- [ ] Docker 선택 시 DB bind mount가 지정한 WSL 로컬 경로를 가리킴
+- [ ] 네이티브 선택 시 PostgreSQL server/client 주 버전 17 및 서비스 active
+- [ ] 폐쇄망 네이티브 선택 시 `.deb` 묶음 SHA-256 검증 및 반입 버전 기록 완료
 - [ ] GitHub의 시험 대상 브랜치와 로컬 HEAD가 일치함
 - [ ] `python --version`이 3.11.x
-- [ ] PostgreSQL 컨테이너 상태가 healthy
 - [ ] vector와 pg_trgm 확장이 설치됨
 - [ ] 최신 `001_pgvector.sql` 적용 완료
 - [ ] 전체 pytest 통과
@@ -847,5 +1253,8 @@ ecm-rag-offline/
 - Docker Desktop WSL 연동: https://docs.docker.com/desktop/features/wsl/
 - uv 설치: https://docs.astral.sh/uv/getting-started/installation/
 - uv Python 관리: https://docs.astral.sh/uv/guides/install-python/
+- PostgreSQL Ubuntu/PGDG 설치: https://www.postgresql.org/download/linux/ubuntu/
+- PostgreSQL PGDG APT 저장소: https://wiki.postgresql.org/wiki/Apt
+- pgvector APT 설치: https://github.com/pgvector/pgvector#apt
 - pgvector Docker 이미지: https://github.com/pgvector/pgvector
 - PyTorch 설치 선택기: https://pytorch.org/get-started/locally/
