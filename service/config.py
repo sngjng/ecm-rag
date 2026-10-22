@@ -204,13 +204,19 @@ class RetrievalSettings(SettingsModel):
 
 
 class AuthenticationSettings(SettingsModel):
-    provider: Literal["java_command", "development_stub"] = "java_command"
+    # 사내 로그인 연동 전까지 false로 두면 모든 보호 endpoint가 아래 임시 사용자로
+    # 동작한다. Java 인증을 적용할 때 RAG_AUTH_ENABLED=true로 전환한다.
+    enabled: bool = False
+    provider: Literal["python_module", "java_command", "development_stub"] = "python_module"
     java_command: str = ""
     timeout_seconds: int = Field(default=15, ge=1, le=120)
     session_hours: int = Field(default=8, ge=1, le=168)
     cookie_name: str = "ecm_rag_session"
     cookie_secure: bool = True
     cookie_samesite: Literal["strict", "lax"] = "strict"
+    temporary_employee_id: str = "temporary"
+    temporary_employee_name: str = "임시 사용자"
+    temporary_department: str = "IDC본부"
 
 
 class SecuritySettings(SettingsModel):

@@ -94,3 +94,42 @@ class ChatRequest(SearchRequest):
     """문서 검색과 근거 기반 답변 생성을 한 번에 요청한다."""
 
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
+
+
+class AdminChunkCreate(BaseModel):
+    """관리자 화면에서 수동으로 생성할 검색 청크와 pgvector 입력 계약."""
+
+    version_id: UUID
+    kind: str = Field(default="admin_text", min_length=1, max_length=100)
+    display_content: str = Field(min_length=1, max_length=100000)
+    embedding_content: str | None = Field(default=None, max_length=100000)
+    identifier: str | None = Field(default=None, max_length=1000)
+    heading_path: str | None = Field(default=None, max_length=2000)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    line_start: int | None = Field(default=None, ge=1)
+    line_end: int | None = Field(default=None, ge=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminChunkUpdate(BaseModel):
+    """관리자 청크 수정 계약. 본문 변경 시 route가 vector를 다시 생성한다."""
+
+    kind: str | None = Field(default=None, min_length=1, max_length=100)
+    display_content: str | None = Field(default=None, min_length=1, max_length=100000)
+    embedding_content: str | None = Field(default=None, min_length=1, max_length=100000)
+    identifier: str | None = Field(default=None, max_length=1000)
+    heading_path: str | None = Field(default=None, max_length=2000)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    line_start: int | None = Field(default=None, ge=1)
+    line_end: int | None = Field(default=None, ge=1)
+    metadata: dict[str, Any] | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        """DB의 NOT NULL 컬럼을 PATCH에서 명시적 null로 바꾸지 못하게 한다."""
+        for name in ("kind", "display_content"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name}은 null로 변경할 수 없습니다")
+        if "metadata" in self.model_fields_set and self.metadata is None:
+            raise ValueError("metadata는 null로 변경할 수 없습니다")

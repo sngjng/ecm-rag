@@ -2,23 +2,31 @@
 
 ## 1. 문서 목적
 
-이 문서는 업로드 화면을 기준으로 사용자의 업무 동작이 어떤 API, Python 함수,
+이 문서는 로그인·업로드·검색 화면을 기준으로 사용자의 업무 동작이 어떤 API, Python 함수,
 PostgreSQL 테이블과 worker 처리로 연결되는지 설명합니다. 화면 변경 및 코드 리뷰 시
 다음 파일을 함께 비교하기 위한 기준 문서입니다.
 
-- 화면: `web/upload.html`
+- 화면: `web/login.html`, `web/spl_upload.html`, `web/upload.html`, `web/search.html`,
+  `web/admin.html`
 - API 조립: `service/api.py`
 - 업로드/상태 API: `service/routes/ingestion.py`
 - 자산 API: `service/routes/assets.py`
 - 검색 API: `service/routes/search.py`
+- 채팅/외부 API: `service/routes/chat.py`, `service/routes/external.py`
+- 관리자 API: `service/routes/admin.py`, `service/repositories/admin.py`
 - DB repository: `service/repositories/assets.py`, `service/repositories/jobs.py`
 - 비동기 처리: `service/worker.py`
 - 검색 처리: `service/search.py`
+- 공통 답변/스택트레이스 분석: `service/answering.py`, `service/stacktrace.py`
 - DB 스키마: `sql/001_pgvector.sql`
 
 RAG는 ECM 문서를 자산화한 뒤 찾고 재사용하기 위한 검색 계층입니다. 화면의 주 업무는
 보험약관 질의응답이 아니라 ECM 자산의 원본, 버전, 메타데이터와 처리 이력을 등록하는
 것입니다.
+
+현재는 `RAG_AUTH_ENABLED=false`인 임시 모드가 기본이며 첫 화면 `/`이
+`spl_upload.html`을 반환합니다. 공통 `authorize()`는 세션 대신 임시 사용자 정보를
+반환합니다. 아래 로그인 단계는 향후 `RAG_AUTH_ENABLED=true`로 전환했을 때 적용됩니다.
 
 ## 2. 화면에서 보이는 전체 업무 흐름
 
@@ -26,7 +34,7 @@ RAG는 ECM 문서를 자산화한 뒤 찾고 재사용하기 위한 검색 계�
 sequenceDiagram
     autonumber
     actor User as 업무 사용자
-    participant UI as 업로드 HTML
+    participant UI as 로그인 / 업로드 HTML
     participant API as FastAPI
     participant DB as PostgreSQL + pgvector
     participant Worker as Python Worker
@@ -36,9 +44,10 @@ sequenceDiagram
 
     User->>UI: 사번·비밀번호 로그인
     UI->>API: POST /api/v1/auth/login
-    API->>API: Java 사내 인증 모듈 호출
+    API->>API: service/login.py 인증 함수 호출
     API->>DB: 사원정보 snapshot과 서버 세션 저장
     API-->>UI: HttpOnly 세션 쿠키
+    UI->>UI: spl_upload.html로 이동
     User->>UI: 파일·메타데이터 입력 후 처리 시작
     UI->>API: POST /api/v1/ingestion/uploads
     API->>API: 로그인 세션, 확장자, 크기, 경로 검증
@@ -84,7 +93,8 @@ Mermaid 원문은 Markdown 안에서 직접 수정할 수 있습니다.
 
 ### 3.1 사내 로그인과 세션
 
-로그인 화면은 사번과 비밀번호를 Java 인증 wrapper에 전달합니다. 인증 성공 시 반환된
+인증 활성화 후 로그인 화면은 사번과 비밀번호를 `POST /api/v1/auth/login`에 전달합니다.
+endpoint는 `service/login.py`의 구현 함수를 호출합니다. 인증 성공 시 반환된
 사번·성명·부서·이메일·역할을 PostgreSQL 세션에 snapshot으로 저장하고 브라우저에는
 무작위 HttpOnly 쿠키만 발급합니다. 비밀번호와 원문 세션 토큰은 DB에 저장하지 않습니다.
 
@@ -197,7 +207,9 @@ GET /api/v1/ingestion/jobs/{job_id}
 Cookie: ecm_rag_session={HttpOnly session}
 ```
 
-최대 240회, 약 12분간 조회하며 `completed` 또는 `failed`이면 polling을 종료합니다.
+3초 간격으로 최대 60분간 조회하며 `completed` 또는 `failed`이면 polling을 종료합니다.
+자동 확인 시간이 끝나더라도 서버 작업은 중단되지 않으므로 작업 API 또는 worker 로그로
+계속 확인할 수 있습니다.
 
 ## 4. 작업 상태 전이
 
@@ -254,7 +266,37 @@ Cookie: ecm_rag_session={HttpOnly session}
 대기·처리 중 작업을 cancelled로 바꿉니다. 버전과 기존 처리 결과는 감사 및 계보를 위해
 보존합니다.
 
-## 6. 검색 화면 또는 OpenWebUI 연계 흐름
+### 5.1 관리자 화면의 RDB·pgvector 관리
+
+`/admin.html`의 **데이터 관리** 화면은 일반 자산 API와 별도의 `/api/v1/admin`
+router를 사용합니다. 인증이
+활성화된 환경에서는 세션의 `roles`에 `admin`이 있어야 하며, 임시 인증 모드에서는
+운영망 ACL로 접근 PC를 제한해야 합니다.
+
+| Method | Endpoint | 기능 | 삭제/갱신 규칙 |
+|---|---|---|---|
+| GET | `/api/v1/admin/stats` | 활성·삭제 자산, 버전, 청크, 작업 집계 | 읽기 전용 |
+| GET/POST | `/api/v1/admin/assets` | 삭제 포함 자산 조회/생성 | 생성은 RDB metadata만 등록 |
+| PATCH/DELETE | `/api/v1/admin/assets/{id}` | 자산 수정/논리 삭제 | Version과 청크는 보존 |
+| POST | `/api/v1/admin/assets/{id}/restore` | 논리 삭제 자산 복구 | 취소 작업은 자동 재시도하지 않음 |
+| GET | `/api/v1/admin/versions` | 청크 대상 Version 조회 | 원본 서버 경로는 노출하지 않음 |
+| GET/POST | `/api/v1/admin/chunks` | 청크 조회/생성 | 본문으로 vector 자동 생성 |
+| PATCH/DELETE | `/api/v1/admin/chunks/{id}` | 청크 수정/물리 삭제 | 본문 수정 시 vector 재생성, 삭제 시 오류·심볼 cascade |
+| GET | `/api/v1/admin/jobs` | 처리 작업·오류 조회 | 읽기 전용 |
+| POST | `/api/v1/admin/jobs/{id}/retry` | 실패/취소 작업 재시도 | attempts를 초기화하고 queued 전환 |
+
+raw vector 배열은 크고 사람이 안전하게 수정하기 어렵기 때문에 화면과 응답에서 제외합니다.
+대신 `embedding_model`과 `embedding_dimensions`를 표시하고, 청크 저장 시 현재 profile의
+임베딩 adapter를 호출해 설정 차원을 검증한 후 본문과 vector를 같은 트랜잭션에 저장합니다.
+
+## 6. 검색·답변 화면과 외부 연계 흐름
+
+임시 모드의 첫 화면과 인증 활성화 후 로그인 성공 기본 화면은 모두
+`/spl_upload.html`입니다. 간편 화면은 자산유형·제목·원본파일만
+입력하고 제목은 선택한 파일명을 기본값으로 사용합니다. 상세 입력이 필요하면
+`/upload.html`을 사용합니다. 두 업로드 화면의 우측 처리 파이프라인 아래에서
+`search.html`로 이동할 수 있고, 검색 화면 상단의 문서 업로드 메뉴는
+`spl_upload.html`로 돌아갑니다.
 
 검색 요청:
 
@@ -287,9 +329,26 @@ flowchart LR
     Result --> Consumer[화면 / OpenWebUI / 사내 LLM]
 ```
 
-검색 API는 답변을 생성하지 않습니다. Asset/Version/파일명/페이지·라인/근거 청크와 검색
-점수를 반환하며, 생성형 답변이 필요하면 외부 응용 계층이 이 결과를 LLM 컨텍스트로
-사용합니다.
+`/api/v1/search`는 답변을 생성하지 않고 Asset/Version/파일명/페이지·라인/근거 청크와
+검색 점수를 반환합니다. `search.html`은 같은 검색기를 사용하는 `/api/v1/chat`을 호출해
+근거 기반 LLM 답변과 검색 결과를 함께 유지합니다. 결과 카드를 누르면 원본 다운로드
+endpoint를 호출하며 인증 활성화 후에는 세션도 검증합니다. 관련 근거가 없으면
+`generation_status=out_of_scope`로
+문서 관련 질문만 지원한다는 안내를 반환하고 LLM은 호출하지 않습니다.
+
+내부 시스템은 세션/API 키 없이 다음 endpoint를 호출할 수 있습니다.
+
+```http
+POST /api/v1/external/answer
+Content-Type: application/json 또는 text/plain
+```
+
+JSON 객체·JSON 문자열·일반 문자열을 지원하며 요청 본문은 16KiB 이하입니다. JSON의
+`stack_trace` 필드를 사용하면 예외 유형, root cause, 오류 코드, Java frame,
+애플리케이션 frame과 fingerprint를 구조화하고 package/class/method 검색어를 추가합니다.
+응답은 공통 `answer`, `generation_status`, `notices`, `results`와 함께
+`request_type`, 필요 시 `stack_trace_analysis`를 포함합니다. 무인증 endpoint이므로
+운영 배포에서는 방화벽/reverse proxy로 사내 허용 대역만 접근시켜야 합니다.
 
 ## 7. 유형별 worker 처리
 
@@ -301,7 +360,8 @@ flowchart LR
 | incident `.txt/.md` | 장애 필드 파서 | 증상·원인·조치·결과 구조화 |
 | error_trace `.log/.txt` | 로그/스택 파서 | 오류 이벤트, 코드, stack frame |
 | source_code `.py` | Python AST | 클래스·함수 심볼과 라인 |
-| source_code `.java` | tree-sitter | 패키지·클래스·메서드 심볼 |
+| source_code `.java` | 순수 Python Java 안전 분석기 | 패키지·클래스·메서드·예외·오류코드 |
+| source_code `.jar` | CFR + Java 안전 분석기 | 디컴파일 소스, JAR index, 심볼·예외·오류코드 |
 | 기타 코드 | 파일 청크 | 저장소·브랜치·논리 경로 |
 
 모든 파서는 공통 `Item` 목록과 report를 반환합니다. worker는 Item 수와 embedding 벡터
@@ -311,8 +371,8 @@ flowchart LR
 
 | 상황 | HTTP/상태 | 화면/운영자 조치 |
 |---|---|---|
-| 세션 누락·만료 | `401` | 로그인 화면으로 이동해 재인증 |
-| Java 인증 모듈 미설정·호출 실패 | `503` | `RAG_AUTH_COMMAND`와 wrapper 상태 확인 |
+| 인증 활성화 후 세션 누락·만료 | `401` | 로그인 화면으로 이동해 재인증 |
+| `login.py` 미구현·연동 실패 | `503` | `authenticate_employee()` 구현과 사내 연동 상태 확인 |
 | 허용하지 않은 유형·확장자 | `422` | Asset 유형과 파일 확장자 확인 |
 | 빈 파일 | `422` | 원본 파일 확인 |
 | 용량 초과 | `413` | profile의 `max_upload_mb`와 파일 크기 확인 |
@@ -321,6 +381,11 @@ flowchart LR
 | 동일 원본 SHA-256 중복 | `409` | 기존 버전 확인 |
 | DB 준비 안 됨 | `/health/ready` `503` | PostgreSQL/DSN/스키마 확인 |
 | worker 처리 오류 | job `queued` 또는 `failed` | `error_detail`, attempts 확인 |
+| 관련 문서 없음 | `200`, `generation_status=out_of_scope` | 지원 범위 안내, LLM 미호출 |
+| LLM 장애 | `200`, `generation_status=unavailable` | 검색 결과·원문 확인, 모델 서버 점검 |
+| 디컴파일 근거 포함 | `200`, `notices` 포함 | line보다 package/class/method 우선 확인 |
+| 관리자 권한 없음 | `403` | 사내 인증 응답의 `roles`에 `admin` 포함 여부 확인 |
+| 관리자 청크 임베딩 실패 | `502` | 임베딩 URL·모델·응답 차원 확인, 기존 청크는 유지 |
 
 ## 9. 코드 리뷰 체크리스트
 
@@ -328,11 +393,13 @@ flowchart LR
 
 - HTML `name`과 `ingestion.upload()` Form 파라미터가 동일한가?
 - 로그인 비밀번호와 원문 세션 토큰이 DB·로그·응답에 남지 않는가?
-- 보호 API가 HttpOnly 세션을 검증하고 만료 시 로그인 화면으로 이동하는가?
+- 임시 모드에서는 공통 임시 사용자를, 인증 모드에서는 HttpOnly 세션을 검증하는가?
 - Asset ID를 사용자에게 직접 입력시키지 않고 후보 선택값으로만 전송하는가?
 - 기존 문서 후보가 자동 병합되지 않고 사용자 확인 단계를 거치는가?
 - 새 terminal 상태가 추가되면 polling 종료 조건도 변경했는가?
 - 브라우저 검증만 믿지 않고 서버 검증도 존재하는가?
+- 관리자 화면이 raw vector를 직접 입력·노출하지 않는가?
+- 관리자 청크 삭제 전에 영구 삭제와 연결 데이터 cascade를 명확히 안내하는가?
 
 ### API 변경
 
@@ -360,6 +427,9 @@ flowchart LR
 - embedding 차원과 PostgreSQL `vector(N)`이 일치하는가?
 - 사용자 표시 원문과 embedding용 문장을 혼동하지 않는가?
 - 검색 결과에 Asset/Version/파일/페이지 또는 라인 근거가 포함되는가?
+- 브라우저 채팅과 외부 API가 `answer_documents()`의 같은 검색·답변 정책을 사용하는가?
+- JAR 근거가 포함되면 디컴파일 라인 차이 안내가 답변과 `notices`에 표시되는가?
+- 무관한 질문은 LLM을 호출하지 않고 `out_of_scope`로 구분되는가?
 
 ## 10. 관련 검증
 

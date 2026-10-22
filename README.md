@@ -24,8 +24,9 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 
 이 프로젝트는 특정 보험상품이나 보험약관을 대상으로 답변을 생성하는 서비스가
 아닙니다. ECM 문서의 수집, 변환, 구조화, 보존, 추적, 검색 및 외부 서비스 연계를 위한
-공통 기반을 구축합니다. 생성형 답변, 업무별 프롬프트와 사용자 화면은 이 플랫폼의
-검색 API를 사용하는 별도 응용 계층에서 구성할 수 있습니다.
+공통 기반을 구축합니다. 현재 구현에는 검색 근거 기반 LLM 답변 화면과 내부 시스템용
+질의응답 API까지 포함되며, 업무별 프롬프트나 별도 UI는 동일 검색 API 위에 확장할 수
+있습니다.
 
 ## 처리 대상
 
@@ -39,7 +40,7 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 ## 실행 구조
 
 ```text
-업로드 HTML / OpenWebUI
+로그인 / 업로드 / 검색 / 관리자 HTML / OpenWebUI / 내부 시스템
         │
         ▼
 FastAPI
@@ -47,7 +48,9 @@ FastAPI
   ├─ /api/v1/ingestion    파일/작업 접수
   ├─ /api/v1/search       ECM 자산 통합 검색
   ├─ /api/v1/chat         검색 근거 기반 LLM 질의응답
-  └─ /api/v1/assets/.../download  인증된 원본 다운로드
+  ├─ /api/v1/admin        RDB 자산·pgvector 청크·처리 작업 관리
+  ├─ /api/v1/external/answer  내부망 무인증 질의·스택트레이스 분석
+  └─ /api/v1/assets/.../download  원본 다운로드(인증 활성화 시 세션 검증)
         │
         ▼
 PostgreSQL queue ◀──── 별도 Python worker
@@ -91,11 +94,19 @@ psql -d ragdb -f artifacts/sql/001_pgvector.rendered.sql
 
 ## 환경 설정
 
-일반 설정은 YAML에서, DB 비밀번호와 Java 인증 wrapper 경로 등 서버별 값은 환경 변수에서 관리합니다.
+일반 설정은 YAML에서, DB 비밀번호와 외부 모델 주소 등 서버별 값은 환경 변수에서 관리합니다.
+
+현재는 사내 로그인 구현 전 임시 운영 모드가 기본입니다. `RAG_AUTH_ENABLED=false`이면
+첫 화면 `/`에서 `spl_upload.html`을 바로 표시하고 세션 없이 업로드·검색을 사용할 수
+있습니다. 업로드 감사 이력에는 `temporary / 임시 사용자 / IDC본부`가 기록됩니다.
+`service/login.py` 인증 연동을 완료한 뒤 `.env`에서 `RAG_AUTH_ENABLED=true`로 변경하면 기존 로그인·
+HttpOnly 세션 검증이 다시 적용됩니다. 임시 모드에서는 8300 포트를 승인된 사내 대역에만
+노출해야 합니다.
 
 ```bash
 export RAG_PROFILE=rockylinux9
 export RAG_DB_DSN='postgresql://raguser:비밀번호@127.0.0.1:5432/ragdb'
+export RAG_AUTH_ENABLED=false
 export RAG_AUTH_COMMAND='/srv/ecm-rag/bin/company-auth-wrapper'
 export RAG_RERANK_MODEL_PATH='/srv/models/bge-reranker-v2-m3'
 export RAG_DOCLING_ARTIFACTS='/srv/models/docling'
@@ -112,6 +123,11 @@ JAR 업로드는 Python 패키지를 추가로 설치하지 않습니다. JDK의
 결과와 결합합니다. JAR 디컴파일 소스와 단일 `.java` 파일은 동일한 공통 분석기를
 사용하여 `throws`, `throw new`, `catch`, Exception/Error/Throwable 유형과 업무 오류
 코드를 청크 metadata 및 embedding 문맥에 함께 저장합니다.
+
+기존 문서 후보는 동일 SHA-256, 동일 `repository + logical_path`, 동일 파일명 또는
+대소문자·공백을 정규화한 정확한 제목 일치로만 제시합니다. 제목이 비슷하다는 이유만으로
+후보를 만들거나 자동 병합하지 않으며 사용자가 새 버전과 별도 신규 자산 중 하나를
+확인합니다.
 
 - 공통값: `config/settings.yaml`
 - 로컬 개발: `config/profiles/local.yaml`
@@ -174,13 +190,37 @@ curl http://127.0.0.1:8300/health/live
 curl http://127.0.0.1:8300/health/ready
 ```
 
-로그인 화면은 `http://서버:8300/login`, 업로드 화면은 로그인 후
-`http://서버:8300/`, 문서 질의응답 화면은 `http://서버:8300/search.html`에서
-사용합니다. 기존 DB에는 `sql/002_session_auth_audit.sql`과
+현재 임시 모드의 첫 화면 `/`은 간편 업로드이며 `/login`도 `/`로 이동합니다. 간편
+업로드는 `/spl_upload.html`, 상세 업로드는 `/upload.html`, 문서 질의응답은
+`/search.html`, 운영 데이터 관리는 `/admin.html`에서 사용합니다. 각 업무 화면에는
+업로드·조회·데이터 관리 화면으로 이동하는 메뉴가 있습니다. 인증을 활성화하면
+`/login`에서 로그인 후 간편 업로드로 이동합니다. 기존
+DB에는 `sql/002_session_auth_audit.sql`과
 `sql/003_code_symbol_stack_lookup.sql`을 추가 적용해야 합니다.
 
-로컬·테스트 profile의 화면 확인 계정은 `test / test`입니다. 운영
-`rockylinux9` profile에서는 이 계정이 비활성화되고 Java 사내 인증만 사용합니다.
+인증을 활성화한 local/test profile의 화면 확인 계정은 `test / test`입니다. 운영
+`rockylinux9` profile에서는 개발 계정이 비활성화되고 기본 `python_module` provider가
+`service/login.py`를 호출합니다.
+
+`admin.html`의 화면 제목은 **데이터 관리**이며, `assets` 메타데이터의
+생성·조회·수정·논리 삭제·복구, Version 조회,
+`chunks`의 생성·조회·수정·물리 삭제, 실패 작업 재시도를 지원합니다. 청크 본문을 등록하거나
+수정하면 임베딩 서버를 호출해 pgvector를 자동 생성하므로 사용자가 raw vector를 직접
+입력하지 않습니다. 청크 물리 삭제는 연결된 오류 이벤트와 코드 심볼도 함께 삭제합니다.
+인증을 활성화하면 사내 로그인 결과의 `roles`에 `admin`이 포함된 사용자만 관리자 API를
+사용할 수 있습니다. 임시 인증 비활성 모드에서는 별도 권한 검사가 없으므로 8300/TCP를
+관리 대상 사내 대역으로 반드시 제한해야 합니다.
+
+원본과 변환 산출물은 PostgreSQL 데이터 디렉터리와 별도로 저장됩니다.
+
+| profile | 원본 | 변환·디컴파일 산출물 |
+|---|---|---|
+| local/default | `artifacts/uploads` | `artifacts/processed` |
+| test | `artifacts/test/uploads` | `artifacts/test/processed` |
+| rockylinux9 | `/srv/ecm-rag/uploads` | `/srv/ecm-rag/processed` |
+
+PostgreSQL의 실제 데이터 디렉터리는 DB 설치 방식이 관리하며 `SHOW data_directory;`로
+확인합니다. DB 백업과 위 파일 경로 백업은 같은 시점의 세트로 보관해야 합니다.
 
 ## 검색
 
@@ -211,7 +251,8 @@ export RAG_LLM_MODEL='운영-모델명'
 export RAG_LLM_API_KEY='필요한 경우에만 설정'
 ```
 
-검색 결과의 문서 카드를 클릭하면 인증 쿠키를 확인한 뒤 해당 버전의 원본을 다운로드합니다.
+검색 결과의 문서 카드를 클릭하면 해당 버전의 원본을 다운로드합니다. 인증 활성화 후에는
+세션 쿠키도 확인합니다.
 서버는 DB 경로를 그대로 신뢰하지 않고 `paths.upload_root` 내부 파일인지 재검증합니다.
 
 ### 내부망 외부 시스템 질의응답 API
@@ -261,12 +302,13 @@ ECM_RAG_PASSWORD=test .venv/bin/python scripts/query_uploaded_documents.py \
   "의료비 선택적복리후생" --asset-type document --limit 3
 ```
 
-## 사내 Java 로그인 계약
+## 향후 `login.py` 로그인 계약
 
-`RAG_AUTH_COMMAND`는 사내 로그인 Java 라이브러리를 호출하는 wrapper 실행 파일입니다.
-FastAPI가 stdin으로 사번·비밀번호 JSON을 전달하면 wrapper는 인증 성공 여부와 사번·성명·
-부서·이메일·역할 JSON을 stdout으로 반환합니다. 상세 계약은
-`JAVA_AUTH_INTEGRATION.md`를 참고하세요.
+FastAPI의 `POST /api/v1/auth/login` endpoint는 이미 준비되어 있습니다. 향후
+`service/login.py`의 `authenticate_employee()`만 구현하면 기존 세션 발급, 쿠키 검증과
+감사 이력 로직을 그대로 사용할 수 있습니다. 구현·활성화 절차는
+[`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md)를 참고하세요. 기존 Java wrapper가 필요한
+환경은 선택적으로 [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md)를 사용할 수 있습니다.
 
 ## DRM 계약
 

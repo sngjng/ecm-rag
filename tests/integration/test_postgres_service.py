@@ -51,18 +51,8 @@ def client():
 
 @pytest.fixture
 def auth_headers(client) -> dict[str, str]:
-    """테스트 전용 사내 인증 stub으로 로그인하고 명시적 Cookie header를 반환한다."""
-    from service.config import get_settings
-
-    logged_in = client.post(
-        "/api/v1/auth/login",
-        json={"employee_id": "test", "password": "test"},
-    )
-    assert logged_in.status_code == 200, logged_in.text
-    cookie_name = get_settings().security.authentication.cookie_name
-    token = logged_in.cookies.get(cookie_name)
-    client.cookies.clear()
-    return {"Cookie": f"{cookie_name}={token}"}
+    """로그인 미구현 임시 모드는 세션 쿠키 없이 같은 endpoint를 사용한다."""
+    return {}
 
 
 def test_health_auth_and_asset_crud(client, auth_headers):
@@ -74,11 +64,13 @@ def test_health_auth_and_asset_crud(client, auth_headers):
     assert ready.status_code == 200
     assert ready.json() == {"status": "ready", "database": "postgresql"}
 
-    assert client.get("/api/v1/assets").status_code == 401
+    assert client.get("/api/v1/assets").status_code == 200
 
     me = client.get("/api/v1/auth/me", headers=auth_headers)
     assert me.status_code == 200
-    assert me.json()["employee_id"] == "test"
+    assert me.json()["employee_id"] == "temporary"
+    assert me.json()["temporary_access"] is True
+    assert me.json()["authentication_enabled"] is False
 
     created = client.post(
         "/api/v1/assets",
@@ -228,7 +220,7 @@ def test_upload_requires_confirmation_before_adding_existing_asset_version(clien
             (asset_id,),
         ).fetchall()
     assert [row["action"] for row in audit] == ["new_asset", "new_version"]
-    assert {row["employee_id"] for row in audit} == {"test"}
+    assert {row["employee_id"] for row in audit} == {"temporary"}
     assert {row["department"] for row in audit} == {"IDC본부"}
 
     history = client.get(
@@ -236,7 +228,7 @@ def test_upload_requires_confirmation_before_adding_existing_asset_version(clien
     )
     assert history.status_code == 200
     assert len(history.json()["items"]) == 2
-    assert history.json()["items"][0]["employee_name"] == "테스트 사용자"
+    assert history.json()["items"][0]["employee_name"] == "임시 사용자"
 
 
 def test_similar_title_alone_does_not_require_duplicate_confirmation(client, auth_headers):
@@ -307,3 +299,79 @@ def test_exact_failed_upload_reuses_and_requeues_existing_job(client, auth_heade
             (original["asset_id"],),
         ).fetchone()
     assert counts == {"assets": 1, "versions": 1}
+
+
+def test_admin_asset_and_pgvector_chunk_crud(client, auth_headers):
+    """관리 화면 API가 자산 soft delete와 검색 청크 CRUD를 일관되게 수행한다."""
+    from service.repositories import jobs
+    from service.worker import process
+
+    uploaded = client.post(
+        "/api/v1/ingestion/uploads",
+        headers=auth_headers,
+        data={"asset_type": "document", "title": "관리자 CRUD 시험 문서"},
+        files={"file": ("admin-test.txt", "초기 검색 본문".encode(), "text/plain")},
+    )
+    assert uploaded.status_code == 202, uploaded.text
+    upload_body = uploaded.json()
+    claimed = jobs.claim_jobs("admin-test-worker", limit=1, lease_seconds=30)
+    assert [str(row["job_id"]) for row in claimed] == [upload_body["job_id"]]
+    process(upload_body["job_id"], "admin-test-worker")
+
+    stats = client.get("/api/v1/admin/stats", headers=auth_headers)
+    assert stats.status_code == 200
+    assert stats.json()["assets"] == 1
+    assert stats.json()["chunks"] >= 1
+
+    created = client.post(
+        "/api/v1/admin/chunks",
+        headers=auth_headers,
+        json={
+            "version_id": upload_body["version_id"],
+            "kind": "admin_note",
+            "display_content": "관리자가 추가한 검색 지식",
+            "identifier": "ADMIN-NOTE-1",
+            "metadata": {"source": "admin-test"},
+        },
+    )
+    assert created.status_code == 201, created.text
+    chunk_id = created.json()["chunk_id"]
+    assert created.json()["embedding_dimensions"] == 1024
+
+    updated = client.patch(
+        f"/api/v1/admin/chunks/{chunk_id}",
+        headers=auth_headers,
+        json={"display_content": "수정된 관리자 검색 지식"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["embedding_content"] == "수정된 관리자 검색 지식"
+
+    listed = client.get(
+        "/api/v1/admin/chunks",
+        headers=auth_headers,
+        params={"q": "수정된 관리자", "version_id": upload_body["version_id"]},
+    )
+    assert listed.status_code == 200
+    assert [row["chunk_id"] for row in listed.json()["items"]] == [chunk_id]
+
+    deleted_chunk = client.delete(
+        f"/api/v1/admin/chunks/{chunk_id}", headers=auth_headers
+    )
+    assert deleted_chunk.status_code == 204
+
+    deleted_asset = client.delete(
+        f"/api/v1/admin/assets/{upload_body['asset_id']}", headers=auth_headers
+    )
+    assert deleted_asset.status_code == 204
+    deleted_list = client.get(
+        "/api/v1/admin/assets",
+        headers=auth_headers,
+        params={"include_deleted": True},
+    ).json()["items"]
+    assert deleted_list[0]["deleted_at"] is not None
+
+    restored = client.post(
+        f"/api/v1/admin/assets/{upload_body['asset_id']}/restore", headers=auth_headers
+    )
+    assert restored.status_code == 200
+    assert restored.json()["deleted_at"] is None

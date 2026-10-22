@@ -1,14 +1,22 @@
 # 사내 Java 로그인 인터페이스 연동 계약
 
+> 현행 기본 provider는 향후 구현할 `service/login.py`의 `python_module`입니다. 이 문서는
+> Java wrapper를 선택적으로 유지해야 하는 환경에서만 적용합니다.
+
 ## 목적
 
 FastAPI가 사내 로그인 Java 라이브러리의 구현 세부사항을 알지 않도록 실행 가능한
 wrapper를 경계로 사용합니다. Python은 인증 요청과 사원정보 응답만 JSON으로 교환하며
 비밀번호를 저장하거나 감사 이력에 기록하지 않습니다.
 
+현재 배포 기본값은 로그인 구현 전 임시 모드(`RAG_AUTH_ENABLED=false`)입니다. 이 문서의
+Java 연동 계약을 구현하고 시험한 뒤 값을 `true`로 바꾸면 로그인 화면과 세션 검증이
+활성화됩니다.
+
 ## 실행 설정
 
 ```bash
+export RAG_AUTH_ENABLED=true
 export RAG_AUTH_COMMAND='/srv/ecm-rag/bin/company-auth-wrapper'
 ```
 
@@ -24,6 +32,10 @@ wrapper와 JAR 실행 권한만 부여하고 소유자 외 쓰기 권한은 제�
 로컬 및 자동화 테스트 profile에서는 Java 모듈 없이 `test / test` 계정을 사용할 수
 있습니다. 이 계정은 `development_stub` provider에서만 동작하며 Rocky Linux 운영
 profile은 기본 `java_command`를 유지합니다.
+
+인증 활성화 시 로그인 성공 또는 유효한 기존 세션 확인 후 브라우저 기본 이동 위치는
+`/spl_upload.html`입니다. 일반 자산·업로드·검색·채팅 API는 세션 인증 대상입니다.
+임시 모드에서는 `/`이 간편 업로드를 바로 반환하고 같은 API들이 임시 사용자로 동작합니다.
 
 ## 표준입력 요청
 
@@ -76,6 +88,10 @@ UTF-8 JSON 한 건을 EOF까지 읽습니다.
 - 신규 자산 또는 기존 자산의 새 버전
 - 사번, 성명, 부서
 - 접속 IP, User-Agent, 접수 시각
+
+내부 시스템 연동용 `POST /api/v1/external/answer`만 의도적으로 세션/API 키 검증을 하지
+않습니다. Java 로그인 예외 경로가 아니라 별도 내부망 경계이며, 운영에서는 방화벽 또는
+reverse proxy ACL로 승인된 사내 대역만 접근시켜야 합니다.
 
 ## DB 적용
 

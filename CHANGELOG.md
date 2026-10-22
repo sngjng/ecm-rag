@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **데이터 관리** `admin.html`과 `/api/v1/admin`을 추가해 PostgreSQL 자산 metadata의 CRUD·복구,
+  Version 조회, pgvector 검색 청크 CRUD, 처리 작업 조회·재시도를 한 화면에서 지원
+- 관리자 청크 본문 생성·수정 시 임베딩을 자동 재생성하고 raw vector 직접 입력을 차단;
+  인증 활성화 시 `admin` 역할을 강제하고 임시 모드의 네트워크 제한 주의사항 문서화
+- 사내 로그인 구현 전 임시 운영을 위해 `RAG_AUTH_ENABLED=false` 모드 추가: 첫 화면을
+  간편 업로드로 변경하고 세션 없는 요청을 공통 임시 사용자 감사 이력으로 처리
+- 임시 인증 모드에서는 업로드·검색 화면의 사용자 정보와 로그아웃 버튼을 표시하지 않음
+- `/upload.html` 상세 업로드 경로를 추가하고 임시 모드에서 `/login`을 첫 화면으로 이동
+- 향후 `service/login.py` 구현만으로 기존 `POST /api/v1/auth/login`과 세션 발급을 사용할
+  수 있도록 `python_module` 인증 provider와 명시적인 placeholder 계약 추가
+- 구현 코드와 일치하도록 README, 아키텍처, 화면/API 흐름, 운영·로컬 설치, Java 인증,
+  통합 시험 및 부서 보고 문서를 2026-10-22 기준으로 전면 현행화
 - `upload.html`과 `spl_upload.html` 우측 처리 파이프라인 아래에 `search.html`로 이동하는
   문서 조회 메뉴 추가
 - `search.html` 상단에 기본 업로드 화면인 `spl_upload.html`로 이동하는 문서 업로드 메뉴 추가

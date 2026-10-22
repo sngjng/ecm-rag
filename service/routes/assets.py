@@ -1,7 +1,8 @@
 """ECM Asset/Version/Relation HTTP API.
 
 router는 HTTP 상태 코드와 입력 DTO 변환을 담당하고 실제 SQL은 repository로 위임한다.
-모든 endpoint에는 router 수준의 ``authorize`` 의존성이 적용된다.
+모든 endpoint에는 router 수준의 ``authorize`` 의존성이 적용된다. 인증 비활성 기간에는
+이 의존성이 임시 사용자를 반환하고, 활성화 후에는 HttpOnly 세션을 검증한다.
 """
 from __future__ import annotations
 

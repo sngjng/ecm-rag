@@ -135,11 +135,19 @@ retrieval:
 
 security:
   authentication:
-    # Java 모듈 wrapper는 stdin JSON을 인증하고 stdout으로 사원정보 JSON을 반환한다.
-    provider: java_command
+    # 임시 운영 모드: false이면 로그인/세션 없이 업로드·검색 API를 사용할 수 있다.
+    # 사내 Java 인증 구현 후 .env의 RAG_AUTH_ENABLED=true로 전환한다.
+    enabled: "${RAG_AUTH_ENABLED:-false}"
+    # 인증 활성화 후 FastAPI endpoint가 service/login.py의 구현 함수를 호출한다.
+    # 기존 Java wrapper 연동이 필요한 환경은 provider를 java_command로 바꿀 수 있다.
+    provider: python_module
     java_command: "${RAG_AUTH_COMMAND:-}"
     timeout_seconds: 15
     session_hours: 8
     cookie_name: ecm_rag_session
     cookie_secure: true
     cookie_samesite: strict
+    # 인증 비활성 기간의 업로드 감사 이력에 기록할 공통 사용자 정보다.
+    temporary_employee_id: temporary
+    temporary_employee_name: 임시 사용자
+    temporary_department: IDC본부

@@ -1,4 +1,4 @@
-"""사내 Java 인증과 서버 세션 쿠키를 연결하는 HTTP API."""
+"""임시 무인증 모드와 사내 Java 세션 인증을 함께 제공하는 HTTP API."""
 from __future__ import annotations
 
 import secrets
@@ -9,7 +9,7 @@ from psycopg.errors import UndefinedTable
 
 from service.auth import authenticate, normalize_client_ip
 from service.config import get_settings
-from service.dependencies import authorize, token_digest
+from service.dependencies import authorize, temporary_user, token_digest
 from service.repositories import auth
 from service.schemas import LoginRequest
 
@@ -25,13 +25,17 @@ def _public_employee(session: dict) -> dict:
         "department": session.get("department") or "",
         "email": session.get("email") or "",
         "roles": session.get("roles") or [],
+        "authentication_enabled": get_settings().security.authentication.enabled,
+        "temporary_access": bool(session.get("temporary_access")),
     }
 
 
 @router.post("/login")
 def login(payload: LoginRequest, request: Request, response: Response):
-    """Java 인증 성공 시 무작위 서버 세션을 만들고 HttpOnly 쿠키를 발급한다."""
+    """설정된 로그인 provider 성공 시 서버 세션과 HttpOnly 쿠키를 발급한다."""
     settings = get_settings().security.authentication
+    if not settings.enabled:
+        return _public_employee(temporary_user())
     identity = authenticate(payload.employee_id, payload.password.get_secret_value())
     token = secrets.token_urlsafe(48)
     try:
@@ -66,6 +70,10 @@ def me(current_user: dict = Depends(authorize)):
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: Request, response: Response):
     settings = get_settings().security.authentication
+    if not settings.enabled:
+        response.delete_cookie(settings.cookie_name, path="/")
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return response
     token = request.cookies.get(settings.cookie_name)
     if token:
         auth.revoke_session(token_digest(token))

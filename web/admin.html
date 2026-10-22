@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ECM-RAG 데이터 관리</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --navy: #102a43;
+        --blue: #3156e8;
+        --blue-soft: #eef2ff;
+        --ink: #172033;
+        --muted: #667085;
+        --line: #e4e8f0;
+        --surface: #ffffff;
+        --background: #f5f7fb;
+        --danger: #c4323d;
+        --success: #16794a;
+        --warning: #9a6700;
+        --shadow: 0 18px 45px rgba(16, 42, 67, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1180px;
+        color: var(--ink);
+        background: var(--background);
+        font-family:
+          Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        color: #fff;
+        background: rgba(13, 27, 52, 0.96);
+        backdrop-filter: blur(14px);
+      }
+
+      .topbar__inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: min(1440px, calc(100% - 56px));
+        min-height: 72px;
+        margin: 0 auto;
+      }
+
+      .brand,
+      .topbar__nav,
+      .section-head,
+      .toolbar,
+      .pagination,
+      .dialog-actions {
+        display: flex;
+        align-items: center;
+      }
+
+      .brand {
+        gap: 16px;
+        font-weight: 750;
+        letter-spacing: -0.02em;
+      }
+
+      .brand img {
+        width: 96px;
+        height: 31px;
+        object-fit: contain;
+        padding: 4px 6px;
+        border-radius: 7px;
+        background: #fff;
+      }
+
+      .brand__divider {
+        width: 1px;
+        height: 24px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+
+      .topbar__nav {
+        gap: 8px;
+      }
+
+      .topbar__nav a {
+        padding: 9px 13px;
+        color: #dce5ff;
+        border-radius: 9px;
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      .topbar__nav a:hover,
+      .topbar__nav a[aria-current="page"] {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .page {
+        width: min(1440px, calc(100% - 56px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+      }
+
+      .hero {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        margin-bottom: 24px;
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: 30px;
+        letter-spacing: -0.04em;
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+
+      .stat {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        box-shadow: 0 8px 22px rgba(16, 42, 67, 0.04);
+      }
+
+      .stat__label {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .stat__value {
+        display: block;
+        margin-top: 7px;
+        font-size: 25px;
+        font-weight: 800;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 14px;
+        padding: 5px;
+        width: max-content;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      .tab {
+        border: 0;
+        padding: 10px 18px;
+        border-radius: 9px;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .tab[aria-selected="true"] {
+        color: #fff;
+        background: var(--navy);
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel[hidden] {
+        display: none;
+      }
+
+      .section-head {
+        justify-content: space-between;
+        gap: 18px;
+        padding: 20px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .section-head h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .section-head p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .toolbar {
+        gap: 8px;
+      }
+
+      input,
+      select,
+      textarea {
+        border: 1px solid #ccd3df;
+        border-radius: 9px;
+        color: var(--ink);
+        background: #fff;
+        outline: none;
+      }
+
+      input,
+      select {
+        height: 40px;
+        padding: 0 11px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 105px;
+        padding: 11px;
+        line-height: 1.5;
+        resize: vertical;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--blue);
+        box-shadow: 0 0 0 3px rgba(49, 86, 232, 0.12);
+      }
+
+      .search-input {
+        width: 250px;
+      }
+
+      .button {
+        min-height: 38px;
+        padding: 0 13px;
+        border: 1px solid #ccd3df;
+        border-radius: 9px;
+        color: var(--ink);
+        background: #fff;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .button:hover {
+        background: #f6f8fb;
+      }
+
+      .button--primary {
+        border-color: var(--blue);
+        color: #fff;
+        background: var(--blue);
+      }
+
+      .button--primary:hover {
+        background: #2445c7;
+      }
+
+      .button--danger {
+        color: var(--danger);
+        border-color: #ecc4c8;
+      }
+
+      .button--small {
+        min-height: 30px;
+        padding: 0 9px;
+        font-size: 12px;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        padding: 13px 12px;
+        border-bottom: 1px solid #edf0f5;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #536076;
+        background: #fafbfc;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      tbody tr:hover {
+        background: #fbfcff;
+      }
+
+      .cell-title {
+        max-width: 260px;
+        font-weight: 750;
+        overflow-wrap: anywhere;
+      }
+
+      .cell-content {
+        display: -webkit-box;
+        max-width: 380px;
+        overflow: hidden;
+        color: #465168;
+        line-height: 1.45;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+      }
+
+      .cell-error {
+        max-width: 330px;
+        color: var(--danger);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .mono {
+        font-family: Consolas, "SFMono-Regular", monospace;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+
+      .actions {
+        display: flex;
+        gap: 5px;
+        white-space: nowrap;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        color: #345;
+        background: #edf1f6;
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .badge--ok {
+        color: var(--success);
+        background: #e9f7f0;
+      }
+
+      .badge--bad {
+        color: var(--danger);
+        background: #fcecee;
+      }
+
+      .badge--run {
+        color: #2445c7;
+        background: var(--blue-soft);
+      }
+
+      .empty {
+        padding: 45px 20px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .pagination {
+        justify-content: space-between;
+        padding: 14px 20px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .pagination__buttons {
+        display: flex;
+        gap: 6px;
+      }
+
+      dialog {
+        width: min(760px, calc(100% - 40px));
+        max-height: calc(100vh - 64px);
+        padding: 0;
+        border: 0;
+        border-radius: 17px;
+        box-shadow: 0 28px 80px rgba(10, 20, 38, 0.3);
+        overflow: auto;
+      }
+
+      dialog::backdrop {
+        background: rgba(9, 18, 35, 0.55);
+        backdrop-filter: blur(3px);
+      }
+
+      .dialog-head {
+        padding: 22px 24px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .dialog-head h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .dialog-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .dialog-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        padding: 22px 24px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 7px;
+        color: #3f4a60;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .field input,
+      .field select {
+        width: 100%;
+      }
+
+      .field--wide {
+        grid-column: 1 / -1;
+      }
+
+      .field__hint {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .dialog-actions {
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 16px 24px 22px;
+        border-top: 1px solid var(--line);
+      }
+
+      .toast {
+        position: fixed;
+        right: 28px;
+        bottom: 28px;
+        z-index: 50;
+        max-width: 430px;
+        padding: 14px 17px;
+        border-radius: 11px;
+        color: #fff;
+        background: #172033;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+        line-height: 1.45;
+      }
+
+      .toast[data-kind="error"] {
+        background: #a72b35;
+      }
+
+      .toast[hidden] {
+        display: none;
+      }
+
+      @media (max-width: 1250px) {
+        .stats {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="brand">
+          <img src="/assets/hyundai-hds-logo.png" alt="현대HDS" />
+          <span class="brand__divider" aria-hidden="true"></span>
+          <span>ECM-RAG 데이터 관리</span>
+        </div>
+        <nav class="topbar__nav" aria-label="주요 메뉴">
+          <a href="/spl_upload.html">문서 업로드</a>
+          <a href="/search.html">문서 조회</a>
+          <a href="/admin.html" aria-current="page">데이터 관리</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="hero">
+        <div>
+          <h1>데이터 관리</h1>
+        </div>
+        <button id="refresh-all" class="button" type="button">전체 새로고침</button>
+      </section>
+
+      <section class="stats" aria-label="데이터 현황">
+        <article class="stat"><span class="stat__label">활성 자산</span><strong id="stat-assets" class="stat__value">-</strong></article>
+        <article class="stat"><span class="stat__label">삭제 자산</span><strong id="stat-deleted" class="stat__value">-</strong></article>
+        <article class="stat"><span class="stat__label">버전</span><strong id="stat-versions" class="stat__value">-</strong></article>
+        <article class="stat"><span class="stat__label">검색 청크</span><strong id="stat-chunks" class="stat__value">-</strong></article>
+        <article class="stat"><span class="stat__label">처리 중</span><strong id="stat-processing" class="stat__value">-</strong></article>
+        <article class="stat"><span class="stat__label">실패 작업</span><strong id="stat-failed" class="stat__value">-</strong></article>
+      </section>
+
+      <div class="tabs" role="tablist" aria-label="관리 대상">
+        <button class="tab" type="button" role="tab" data-panel="assets" aria-selected="true">문서자산 RDB</button>
+        <button class="tab" type="button" role="tab" data-panel="chunks" aria-selected="false">검색 청크 · pgvector</button>
+        <button class="tab" type="button" role="tab" data-panel="jobs" aria-selected="false">처리 작업</button>
+      </div>
+
+      <section id="panel-assets" class="panel">
+        <div class="section-head">
+          <div>
+            <h2>문서자산</h2>
+            <p>assets 테이블의 업무 메타데이터를 관리합니다.</p>
+          </div>
+          <div class="toolbar">
+            <input id="asset-query" class="search-input" type="search" placeholder="제목 또는 시스템명" />
+            <select id="asset-type" aria-label="자산 유형">
+              <option value="">전체 유형</option>
+              <option value="document">일반 문서</option>
+              <option value="incident">장애 사례</option>
+              <option value="error_trace">오류 로그</option>
+              <option value="source_code">소스 코드</option>
+            </select>
+            <label><input id="include-deleted" type="checkbox" /> 삭제 포함</label>
+            <button id="asset-search" class="button" type="button">조회</button>
+            <button id="asset-add" class="button button--primary" type="button">자산 추가</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>제목</th><th>유형</th><th>시스템 / 소유부서</th><th>버전</th><th>청크</th><th>상태</th><th>수정일</th><th>관리</th></tr></thead>
+            <tbody id="asset-rows"></tbody>
+          </table>
+          <div id="asset-empty" class="empty" hidden>조회된 자산이 없습니다.</div>
+        </div>
+        <div id="asset-pagination" class="pagination"></div>
+      </section>
+
+      <section id="panel-chunks" class="panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2>검색 청크 · pgvector</h2>
+            <p>본문을 수정하면 현재 임베딩 모델로 vector가 자동 갱신됩니다.</p>
+          </div>
+          <div class="toolbar">
+            <input id="chunk-query" class="search-input" type="search" placeholder="본문 또는 식별자" />
+            <select id="chunk-asset" aria-label="자산 선택"><option value="">전체 자산</option></select>
+            <button id="chunk-search" class="button" type="button">조회</button>
+            <button id="chunk-add" class="button button--primary" type="button">청크 추가</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>자산 / 버전</th><th>종류 · 식별자</th><th>본문</th><th>벡터</th><th>위치</th><th>관리</th></tr></thead>
+            <tbody id="chunk-rows"></tbody>
+          </table>
+          <div id="chunk-empty" class="empty" hidden>조회된 검색 청크가 없습니다.</div>
+        </div>
+        <div id="chunk-pagination" class="pagination"></div>
+      </section>
+
+      <section id="panel-jobs" class="panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2>문서 처리 작업</h2>
+            <p>ingestion_jobs 상태와 오류를 확인하고 실패 작업을 재시도합니다.</p>
+          </div>
+          <div class="toolbar">
+            <select id="job-status" aria-label="작업 상태">
+              <option value="">전체 상태</option><option value="queued">대기</option><option value="processing">처리 중</option><option value="completed">완료</option><option value="failed">실패</option><option value="cancelled">취소</option>
+            </select>
+            <button id="job-search" class="button" type="button">조회</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>자산 / 파일</th><th>상태</th><th>처리 단계</th><th>시도</th><th>청크</th><th>오류</th><th>수정일</th><th>관리</th></tr></thead>
+            <tbody id="job-rows"></tbody>
+          </table>
+          <div id="job-empty" class="empty" hidden>조회된 작업이 없습니다.</div>
+        </div>
+        <div id="job-pagination" class="pagination"></div>
+      </section>
+    </main>
+
+    <dialog id="asset-dialog">
+      <form id="asset-form">
+        <div class="dialog-head"><h2 id="asset-dialog-title">자산 추가</h2><p>문서자산의 업무 분류와 소유 정보를 입력합니다.</p></div>
+        <div class="dialog-body">
+          <div class="field"><label for="form-asset-type">자산 유형 *</label><select id="form-asset-type" required><option value="document">일반 문서</option><option value="incident">장애 사례</option><option value="error_trace">오류 로그</option><option value="source_code">소스 코드</option></select></div>
+          <div class="field"><label for="form-asset-subtype">하위 유형 *</label><input id="form-asset-subtype" value="general" maxlength="100" required /></div>
+          <div class="field field--wide"><label for="form-asset-title">제목 *</label><input id="form-asset-title" maxlength="300" required /></div>
+          <div class="field"><label for="form-system-name">시스템명</label><input id="form-system-name" maxlength="200" /></div>
+          <div class="field"><label for="form-service-name">서비스명</label><input id="form-service-name" maxlength="200" /></div>
+          <div class="field"><label for="form-vendor">제조사</label><input id="form-vendor" maxlength="200" /></div>
+          <div class="field"><label for="form-product">제품명</label><input id="form-product" maxlength="200" /></div>
+          <div class="field"><label for="form-owner-org">소유 부서</label><input id="form-owner-org" maxlength="200" /></div>
+          <div class="field"><label for="form-security">보안 등급 *</label><input id="form-security" value="internal" maxlength="50" required /></div>
+          <div class="field field--wide"><label for="form-asset-metadata">추가 메타데이터(JSON)</label><textarea id="form-asset-metadata">{}</textarea></div>
+        </div>
+        <div class="dialog-actions"><button class="button" type="button" data-close="asset-dialog">취소</button><button class="button button--primary" type="submit">저장</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="chunk-dialog">
+      <form id="chunk-form">
+        <div class="dialog-head"><h2 id="chunk-dialog-title">검색 청크 추가</h2><p>표시 본문을 기반으로 pgvector 임베딩을 자동 생성합니다.</p></div>
+        <div class="dialog-body">
+          <div class="field field--wide"><label for="form-version">대상 버전 *</label><select id="form-version" required></select></div>
+          <div class="field"><label for="form-kind">청크 종류 *</label><input id="form-kind" value="admin_text" maxlength="100" required /></div>
+          <div class="field"><label for="form-identifier">식별자</label><input id="form-identifier" maxlength="1000" /></div>
+          <div class="field field--wide"><label for="form-heading">제목 경로</label><input id="form-heading" maxlength="2000" /></div>
+          <div class="field field--wide"><label for="form-display-content">표시·검색 본문 *</label><textarea id="form-display-content" required></textarea></div>
+          <div class="field field--wide"><label for="form-embedding-content">임베딩 전용 본문</label><textarea id="form-embedding-content" placeholder="비워두면 표시 본문을 사용합니다."></textarea><span class="field__hint">이 값 또는 표시 본문이 바뀌면 벡터가 자동 재생성됩니다.</span></div>
+          <div class="field"><label for="form-page-start">시작 페이지</label><input id="form-page-start" type="number" min="1" /></div>
+          <div class="field"><label for="form-page-end">종료 페이지</label><input id="form-page-end" type="number" min="1" /></div>
+          <div class="field"><label for="form-line-start">시작 라인</label><input id="form-line-start" type="number" min="1" /></div>
+          <div class="field"><label for="form-line-end">종료 라인</label><input id="form-line-end" type="number" min="1" /></div>
+          <div class="field field--wide"><label for="form-chunk-metadata">청크 메타데이터(JSON)</label><textarea id="form-chunk-metadata">{}</textarea></div>
+        </div>
+        <div class="dialog-actions"><button class="button" type="button" data-close="chunk-dialog">취소</button><button class="button button--primary" type="submit">저장 및 벡터 생성</button></div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script>
+      const API = "/api/v1/admin";
+      const PAGE_SIZE = 50;
+      const state = { assets: [], chunks: [], versions: [], assetOffset: 0, chunkOffset: 0, jobOffset: 0, editingAsset: null, editingChunk: null };
+      const $ = (id) => document.getElementById(id);
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+      }
+
+      function formatDate(value) {
+        return value ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "-";
+      }
+
+      function valueOrNull(id) {
+        const value = $(id).value.trim();
+        return value || null;
+      }
+
+      function numberOrNull(id) {
+        const value = $(id).value;
+        return value ? Number(value) : null;
+      }
+
+      function parseJson(id) {
+        try {
+          const value = JSON.parse($(id).value || "{}");
+          if (!value || Array.isArray(value) || typeof value !== "object") throw new Error();
+          return value;
+        } catch {
+          throw new Error("메타데이터는 JSON 객체 형식으로 입력해 주세요.");
+        }
+      }
+
+      let toastTimer;
+      function notify(message, kind = "success") {
+        clearTimeout(toastTimer);
+        $("toast").textContent = message;
+        $("toast").dataset.kind = kind;
+        $("toast").hidden = false;
+        toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4500);
+      }
+
+      async function api(path, options = {}) {
+        const response = await fetch(`${API}${path}`, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } });
+        if (response.status === 401) {
+          location.href = "/login";
+          throw new Error("로그인이 필요합니다.");
+        }
+        if (!response.ok) {
+          let detail = `요청 실패 (${response.status})`;
+          try { const data = await response.json(); detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail); } catch {}
+          throw new Error(detail);
+        }
+        return response.status === 204 ? null : response.json();
+      }
+
+      function renderPagination(id, total, offset, loader) {
+        const start = total ? offset + 1 : 0;
+        const end = Math.min(offset + PAGE_SIZE, total);
+        $(id).innerHTML = `<span>전체 ${total.toLocaleString()}건 · ${start}-${end}</span><span class="pagination__buttons"><button class="button button--small" data-page="prev" ${offset === 0 ? "disabled" : ""}>이전</button><button class="button button--small" data-page="next" ${end >= total ? "disabled" : ""}>다음</button></span>`;
+        $(id).querySelector('[data-page="prev"]').onclick = () => loader(Math.max(0, offset - PAGE_SIZE));
+        $(id).querySelector('[data-page="next"]').onclick = () => loader(offset + PAGE_SIZE);
+      }
+
+      async function loadStats() {
+        const data = await api("/stats");
+        $("stat-assets").textContent = data.assets.toLocaleString();
+        $("stat-deleted").textContent = data.deleted_assets.toLocaleString();
+        $("stat-versions").textContent = data.versions.toLocaleString();
+        $("stat-chunks").textContent = data.chunks.toLocaleString();
+        $("stat-processing").textContent = (data.queued_jobs + data.processing_jobs).toLocaleString();
+        $("stat-failed").textContent = data.failed_jobs.toLocaleString();
+      }
+
+      async function loadAssets(offset = 0) {
+        state.assetOffset = offset;
+        const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+        if ($("asset-query").value.trim()) params.set("q", $("asset-query").value.trim());
+        if ($("asset-type").value) params.set("asset_type", $("asset-type").value);
+        if ($("include-deleted").checked) params.set("include_deleted", "true");
+        const data = await api(`/assets?${params}`);
+        state.assets = data.items;
+        $("asset-empty").hidden = data.items.length > 0;
+        $("asset-rows").innerHTML = data.items.map((item) => `<tr><td><div class="cell-title">${escapeHtml(item.title)}</div><div class="mono">${escapeHtml(item.asset_id)}</div></td><td>${escapeHtml(item.asset_type)}<br /><span class="badge">${escapeHtml(item.subtype)}</span></td><td>${escapeHtml(item.system_name || "-")}<br /><span class="muted">${escapeHtml(item.owner_org || "-")}</span></td><td>${item.version_count}</td><td>${item.chunk_count}</td><td>${item.deleted_at ? '<span class="badge badge--bad">삭제</span>' : '<span class="badge badge--ok">활성</span>'}</td><td>${formatDate(item.updated_at)}</td><td><div class="actions">${item.deleted_at ? `<button class="button button--small" data-restore="${item.asset_id}">복구</button>` : `<button class="button button--small" data-edit-asset="${item.asset_id}">수정</button><button class="button button--small button--danger" data-delete-asset="${item.asset_id}">삭제</button>`}</div></td></tr>`).join("");
+        renderPagination("asset-pagination", data.total, offset, loadAssets);
+        bindAssetActions();
+        await refreshAssetOptions();
+      }
+
+      function bindAssetActions() {
+        document.querySelectorAll("[data-edit-asset]").forEach((button) => button.onclick = () => openAssetDialog(state.assets.find((item) => item.asset_id === button.dataset.editAsset)));
+        document.querySelectorAll("[data-delete-asset]").forEach((button) => button.onclick = async () => {
+          if (!confirm("이 자산을 논리 삭제하시겠습니까? 대기·처리 중 작업은 취소됩니다.")) return;
+          try { await api(`/assets/${button.dataset.deleteAsset}`, { method: "DELETE" }); notify("자산을 삭제 처리했습니다."); await refreshCurrent(); } catch (error) { notify(error.message, "error"); }
+        });
+        document.querySelectorAll("[data-restore]").forEach((button) => button.onclick = async () => {
+          try { await api(`/assets/${button.dataset.restore}/restore`, { method: "POST" }); notify("자산을 복구했습니다."); await refreshCurrent(); } catch (error) { notify(error.message, "error"); }
+        });
+      }
+
+      async function refreshAssetOptions() {
+        const data = await api("/assets?limit=200&offset=0");
+        const current = $("chunk-asset").value;
+        $("chunk-asset").innerHTML = '<option value="">전체 자산</option>' + data.items.map((item) => `<option value="${item.asset_id}">${escapeHtml(item.title)}</option>`).join("");
+        $("chunk-asset").value = current;
+      }
+
+      async function loadVersions() {
+        const data = await api("/versions?limit=500");
+        state.versions = data.items;
+        $("form-version").innerHTML = data.items.map((item) => `<option value="${item.version_id}">${escapeHtml(item.title)} · ${escapeHtml(item.version_label)} · ${escapeHtml(item.source_filename)}</option>`).join("");
+      }
+
+      async function loadChunks(offset = 0) {
+        state.chunkOffset = offset;
+        const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+        if ($("chunk-query").value.trim()) params.set("q", $("chunk-query").value.trim());
+        if ($("chunk-asset").value) params.set("asset_id", $("chunk-asset").value);
+        const data = await api(`/chunks?${params}`);
+        state.chunks = data.items;
+        $("chunk-empty").hidden = data.items.length > 0;
+        $("chunk-rows").innerHTML = data.items.map((item) => `<tr><td><div class="cell-title">${escapeHtml(item.title)}</div><span>${escapeHtml(item.version_label)} · ${escapeHtml(item.source_filename)}</span></td><td><span class="badge">${escapeHtml(item.kind)}</span><div class="mono">${escapeHtml(item.identifier || item.chunk_id)}</div></td><td><span class="cell-content">${escapeHtml(item.display_content)}</span></td><td><strong>${item.embedding_dimensions}차원</strong><br /><span class="mono">${escapeHtml(item.embedding_model)}</span></td><td>p.${item.page_start || "-"} / L${item.line_start || "-"}</td><td><div class="actions"><button class="button button--small" data-edit-chunk="${escapeHtml(item.chunk_id)}">수정</button><button class="button button--small button--danger" data-delete-chunk="${escapeHtml(item.chunk_id)}">삭제</button></div></td></tr>`).join("");
+        renderPagination("chunk-pagination", data.total, offset, loadChunks);
+        bindChunkActions();
+      }
+
+      function bindChunkActions() {
+        document.querySelectorAll("[data-edit-chunk]").forEach((button) => button.onclick = () => openChunkDialog(state.chunks.find((item) => item.chunk_id === button.dataset.editChunk)));
+        document.querySelectorAll("[data-delete-chunk]").forEach((button) => button.onclick = async () => {
+          if (!confirm("이 청크와 연결된 pgvector·오류·코드 심볼을 영구 삭제하시겠습니까?")) return;
+          try { await api(`/chunks/${encodeURIComponent(button.dataset.deleteChunk)}`, { method: "DELETE" }); notify("검색 청크를 삭제했습니다."); await refreshCurrent(); } catch (error) { notify(error.message, "error"); }
+        });
+      }
+
+      async function loadJobs(offset = 0) {
+        state.jobOffset = offset;
+        const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+        if ($("job-status").value) params.set("status", $("job-status").value);
+        const data = await api(`/jobs?${params}`);
+        $("job-empty").hidden = data.items.length > 0;
+        $("job-rows").innerHTML = data.items.map((item) => `<tr><td><div class="cell-title">${escapeHtml(item.title)}</div><span>${escapeHtml(item.source_filename)}</span><div class="mono">${escapeHtml(item.job_id)}</div></td><td><span class="badge ${item.status === "completed" ? "badge--ok" : item.status === "failed" ? "badge--bad" : "badge--run"}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.processing_stage || "-")}<br /><span>${escapeHtml(item.progress_detail || "")}</span></td><td>${item.attempts} / ${item.max_attempts}</td><td>${item.chunk_count}</td><td><span class="cell-error">${escapeHtml(item.error_detail || "-")}</span></td><td>${formatDate(item.updated_at)}</td><td>${["failed", "cancelled"].includes(item.status) ? `<button class="button button--small" data-retry="${item.job_id}">재시도</button>` : "-"}</td></tr>`).join("");
+        renderPagination("job-pagination", data.total, offset, loadJobs);
+        document.querySelectorAll("[data-retry]").forEach((button) => button.onclick = async () => {
+          if (!confirm("이 작업을 처음부터 다시 처리하시겠습니까?")) return;
+          try { await api(`/jobs/${button.dataset.retry}/retry`, { method: "POST" }); notify("작업을 재처리 대기열에 등록했습니다."); await refreshCurrent(); } catch (error) { notify(error.message, "error"); }
+        });
+      }
+
+      function openAssetDialog(item = null) {
+        state.editingAsset = item;
+        $("asset-dialog-title").textContent = item ? "자산 수정" : "자산 추가";
+        $("form-asset-type").disabled = Boolean(item);
+        $("form-asset-type").value = item?.asset_type || "document";
+        $("form-asset-subtype").value = item?.subtype || "general";
+        $("form-asset-title").value = item?.title || "";
+        $("form-system-name").value = item?.system_name || "";
+        $("form-service-name").value = item?.service_name || "";
+        $("form-vendor").value = item?.vendor || "";
+        $("form-product").value = item?.product || "";
+        $("form-owner-org").value = item?.owner_org || "";
+        $("form-security").value = item?.security_level || "internal";
+        $("form-asset-metadata").value = JSON.stringify(item?.metadata || {}, null, 2);
+        $("asset-dialog").showModal();
+      }
+
+      function openChunkDialog(item = null) {
+        state.editingChunk = item;
+        $("chunk-dialog-title").textContent = item ? "검색 청크 수정" : "검색 청크 추가";
+        $("form-version").disabled = Boolean(item);
+        if (item) $("form-version").value = item.version_id;
+        $("form-kind").value = item?.kind || "admin_text";
+        $("form-identifier").value = item?.identifier || "";
+        $("form-heading").value = item?.heading_path || "";
+        $("form-display-content").value = item?.display_content || "";
+        $("form-embedding-content").value = item?.embedding_content || "";
+        $("form-page-start").value = item?.page_start || "";
+        $("form-page-end").value = item?.page_end || "";
+        $("form-line-start").value = item?.line_start || "";
+        $("form-line-end").value = item?.line_end || "";
+        $("form-chunk-metadata").value = JSON.stringify(item?.metadata || {}, null, 2);
+        $("chunk-dialog").showModal();
+      }
+
+      async function refreshCurrent() {
+        await loadStats();
+        const selected = document.querySelector('.tab[aria-selected="true"]').dataset.panel;
+        if (selected === "assets") await loadAssets(state.assetOffset);
+        if (selected === "chunks") await loadChunks(state.chunkOffset);
+        if (selected === "jobs") await loadJobs(state.jobOffset);
+      }
+
+      document.querySelectorAll(".tab").forEach((tab) => tab.onclick = async () => {
+        document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+        document.querySelectorAll(".panel").forEach((panel) => { panel.hidden = panel.id !== `panel-${tab.dataset.panel}`; });
+        try { if (tab.dataset.panel === "chunks") await loadChunks(); if (tab.dataset.panel === "jobs") await loadJobs(); } catch (error) { notify(error.message, "error"); }
+      });
+
+      document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => $(button.dataset.close).close());
+      $("asset-add").onclick = () => openAssetDialog();
+      $("chunk-add").onclick = () => state.versions.length ? openChunkDialog() : notify("먼저 원본 업로드로 자산 버전을 생성해 주세요.", "error");
+      $("asset-search").onclick = () => loadAssets().catch((error) => notify(error.message, "error"));
+      $("chunk-search").onclick = () => loadChunks().catch((error) => notify(error.message, "error"));
+      $("job-search").onclick = () => loadJobs().catch((error) => notify(error.message, "error"));
+      $("refresh-all").onclick = () => refreshCurrent().catch((error) => notify(error.message, "error"));
+      $("asset-query").onkeydown = (event) => { if (event.key === "Enter") $("asset-search").click(); };
+      $("chunk-query").onkeydown = (event) => { if (event.key === "Enter") $("chunk-search").click(); };
+
+      $("asset-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const payload = { asset_type: $("form-asset-type").value, subtype: $("form-asset-subtype").value.trim(), title: $("form-asset-title").value.trim(), system_name: valueOrNull("form-system-name"), service_name: valueOrNull("form-service-name"), vendor: valueOrNull("form-vendor"), product: valueOrNull("form-product"), owner_org: valueOrNull("form-owner-org"), security_level: $("form-security").value.trim(), metadata: parseJson("form-asset-metadata") };
+          const path = state.editingAsset ? `/assets/${state.editingAsset.asset_id}` : "/assets";
+          if (state.editingAsset) delete payload.asset_type;
+          await api(path, { method: state.editingAsset ? "PATCH" : "POST", body: JSON.stringify(payload) });
+          $("asset-dialog").close(); notify("자산 정보를 저장했습니다."); await refreshCurrent();
+        } catch (error) { notify(error.message, "error"); }
+      };
+
+      $("chunk-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const payload = { version_id: $("form-version").value, kind: $("form-kind").value.trim(), display_content: $("form-display-content").value.trim(), embedding_content: valueOrNull("form-embedding-content"), identifier: valueOrNull("form-identifier"), heading_path: valueOrNull("form-heading"), page_start: numberOrNull("form-page-start"), page_end: numberOrNull("form-page-end"), line_start: numberOrNull("form-line-start"), line_end: numberOrNull("form-line-end"), metadata: parseJson("form-chunk-metadata") };
+          const path = state.editingChunk ? `/chunks/${encodeURIComponent(state.editingChunk.chunk_id)}` : "/chunks";
+          if (state.editingChunk) delete payload.version_id;
+          await api(path, { method: state.editingChunk ? "PATCH" : "POST", body: JSON.stringify(payload) });
+          $("chunk-dialog").close(); notify("청크와 pgvector를 저장했습니다."); await refreshCurrent();
+        } catch (error) { notify(error.message, "error"); }
+      };
+
+      Promise.all([loadStats(), loadAssets(), loadVersions()]).catch((error) => notify(error.message, "error"));
+    </script>
+  </body>
+</html>

@@ -34,7 +34,7 @@ def normalize_client_ip(value: str | None) -> str | None:
 
 
 def authenticate(employee_id: str, password: str) -> EmployeeIdentity:
-    """Java 사내 인증 결과를 검증된 사원정보 객체로 변환한다."""
+    """설정한 provider의 인증 결과를 검증된 사원정보 객체로 변환한다."""
     settings = get_settings().security.authentication
 
     # 자동화 테스트 전용 provider다. 운영 profile에서 사용하지 않는다.
@@ -49,6 +49,13 @@ def authenticate(employee_id: str, password: str) -> EmployeeIdentity:
             email="test@test.local",
             roles=["uploader"],
         )
+
+    # 향후 로그인 구현은 service/login.py 한 곳에만 작성한다. route와 세션 발급 코드는
+    # 변경하지 않아도 되며, 순환 import를 피하기 위해 선택된 경우에만 가져온다.
+    if settings.provider == "python_module":
+        from service.login import authenticate_employee
+
+        return authenticate_employee(employee_id, password)
 
     if not settings.java_command.strip():
         raise HTTPException(503, "사내 로그인 연동 모듈이 설정되지 않았습니다")

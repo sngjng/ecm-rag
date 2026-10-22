@@ -588,7 +588,8 @@ psql "$RAG_DB_DSN" -Atc \
 
 - 실제 BGE-M3 대신 `deterministic_stub` embedding 사용
 - 실제 Java 로그인 대신 `development_stub` 사용
-- 로그인 테스트 비밀번호: `test-password`
+- 로그인 테스트 계정: `test / test`
+- 기본 인증 비활성: 로그인 없이 임시 사용자로 화면/API 사용
 - DRM 비활성화
 - reranker 비활성화
 - 업로드 제한 5 MB
@@ -668,16 +669,23 @@ curl http://127.0.0.1:8300/health/ready
 
 Windows 브라우저에서 다음 주소를 엽니다.
 
-- 로그인: `http://localhost:8300/login`
-- 업로드: `http://localhost:8300/`
+- 첫 화면/간편 업로드: `http://localhost:8300/`
+- 간편 업로드 직접 경로: `http://localhost:8300/spl_upload.html`
+- 상세 업로드: `http://localhost:8300/upload.html`
+- 로그인 화면: 인증을 활성화한 경우 `http://localhost:8300/login`
+- 문서 조회·질의응답: `http://localhost:8300/search.html`
 - API 문서: `http://localhost:8300/docs`
+
+현재 기본값에서는 로그인하지 않습니다. `/api/v1/auth/me`는 임시 사용자 정보를
+반환합니다. 아래 계정은 `RAG_AUTH_ENABLED=true`로 인증을 활성화한 local/test profile에서만
+사용합니다.
 
 테스트 로그인:
 
 | 항목 | 값 |
 |---|---|
-| 사번 | 임의 문자열, 예: `E12345` |
-| 비밀번호 | `test-password` |
+| 사번 | `test` |
+| 비밀번호 | `test` |
 
 로그인 후 TXT 또는 MD 파일을 업로드합니다. 기존 문서 후보가 발견되면 화면에서 다음 중
 하나를 선택합니다.
@@ -703,13 +711,13 @@ curl -X POST \
   http://127.0.0.1:8300/api/v1/search
 ```
 
-CLI에서 세션까지 시험하려면 먼저 로그인 쿠키를 받습니다.
+인증 활성화 이후 CLI에서 세션까지 시험하려면 먼저 로그인 쿠키를 받습니다.
 
 ```bash
 curl -X POST \
   --cookie-jar /tmp/ecm-rag-cookie.txt \
   -H 'Content-Type: application/json' \
-  -d '{"employee_id":"E12345","password":"test-password"}' \
+  -d '{"employee_id":"test","password":"test"}' \
   http://127.0.0.1:8300/api/v1/auth/login
 ```
 
@@ -720,7 +728,25 @@ curl --cookie /tmp/ecm-rag-cookie.txt \
   http://127.0.0.1:8300/api/v1/auth/me
 ```
 
-## 14. 실제 모델·Java 인증·DRM 연동
+내부망 외부 연동 endpoint는 세션 없이 일반 문자열과 스택트레이스 JSON을 받을 수
+있습니다. 로컬에서는 다음처럼 기능만 확인하고, 다른 PC에 개방할 때는 반드시 허용
+대역 ACL을 적용합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8300/api/v1/external/answer \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"등록한 테스트 문서의 핵심 내용을 알려줘","limit":3}'
+
+curl -X POST http://127.0.0.1:8300/api/v1/external/answer \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query":"원인과 관련 소스를 알려줘",
+    "stack_trace":"java.lang.NullPointerException: value\n at com.company.OrderService.load(OrderService.java:42)",
+    "limit":5
+  }'
+```
+
+## 14. 실제 모델·`login.py` 인증·DRM 연동
 
 핵심 통합 테스트가 끝난 후 실제 환경을 연결합니다.
 
@@ -736,8 +762,13 @@ export RAG_LLM_URL='http://LLM서버:8000/v1'
 export RAG_LLM_MODEL='실제모델명'
 export RAG_LLM_API_KEY='필요한경우만설정'
 
+# service/login.py 구현·시험 후 활성화
+export RAG_AUTH_ENABLED=true
+# 기존 Java wrapper provider를 선택할 때만 설정
 export RAG_AUTH_COMMAND='java -jar /경로/company-auth-adapter.jar'
 export RAG_DRM_COMMAND='/경로/decrypt-wrapper'
+export RAG_JAVA_COMMAND='/경로/jdk/bin/java'
+export RAG_CFR_JAR_PATH='/경로/cfr-0.152.jar'
 ```
 
 주의사항:
@@ -745,8 +776,11 @@ export RAG_DRM_COMMAND='/경로/decrypt-wrapper'
 - BGE-M3 응답은 PostgreSQL 스키마와 같은 1024차원이어야 합니다.
 - `local` profile은 쿠키 `Secure=false`라 HTTP 로컬 테스트에만 사용합니다.
 - Rocky Linux 운영 profile은 HTTPS와 `Secure=true` 쿠키를 전제로 합니다.
-- Java 인증 wrapper 계약은 `JAVA_AUTH_INTEGRATION.md`를 따릅니다.
+- 기본 로그인 구현 계약은 `LOGIN_INTEGRATION.md`를 따릅니다.
+- 기존 Java wrapper를 선택할 때만 `JAVA_AUTH_INTEGRATION.md`를 따릅니다.
 - DRM wrapper 계약은 README와 `service/drm.py`를 따릅니다.
+- JAR 업로드는 자산유형 `source_code`, JDK/JRE와 CFR 파일이 필요합니다. 디컴파일 결과는
+  원본 line과 다를 수 있으므로 검색 답변에서는 package/class/method를 우선 확인합니다.
 - 비밀번호와 API key를 YAML이나 Git에 저장하지 않습니다.
 
 ## 15. 테스트 환경 중지·재시작·초기화
@@ -1166,8 +1200,9 @@ PostgreSQL 17과 pgvector 네이티브 설치 패키지는 일반 OS 도구 묶�
 - BGE-M3 embedding 모델 또는 사내 embedding API 배포본
 - BGE reranker 모델
 - Docling 모델 artifact
-- EasyOCR/RapidOCR 모델 파일
-- Java 사내 인증 adapter JAR과 wrapper
+- EasyOCR 모델 파일(설정으로 RapidOCR를 선택할 때는 해당 모델도 별도 반입)
+- JDK/JRE와 검증된 CFR JAR(`RAG_JAVA_COMMAND`, `RAG_CFR_JAR_PATH`)
+- `service/login.py`가 사용하는 사내 인증 SDK/인증서 또는 선택적인 Java adapter
 - Java DRM 라이브러리/JAR과 wrapper
 - 사내 CA 인증서
 
@@ -1239,7 +1274,8 @@ ecm-rag-offline/
 - [ ] 전체 pytest 통과
 - [ ] `/health/live`가 200 반환
 - [ ] `/health/ready`가 200 반환
-- [ ] 개발 stub 로그인 성공
+- [ ] 임시 사용자로 첫 화면·업로드·검색 성공
+- [ ] 인증 시험 시 `RAG_AUTH_ENABLED=true`와 개발 stub `test/test` 로그인 성공
 - [ ] 신규 Asset 및 새 Version 선택 흐름 확인
 - [ ] worker 작업이 completed로 종료
 - [ ] 검색 API가 근거 청크를 반환

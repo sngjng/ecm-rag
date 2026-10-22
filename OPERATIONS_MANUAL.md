@@ -1,5 +1,7 @@
 # ECM-RAG 설치·연동·운영·디버깅 매뉴얼
 
+최종 현행화: 2026-10-22
+
 ## 1. 문서 목적과 적용 범위
 
 이 문서는 회사 내부 네트워크의 Rocky Linux 9 PC에 ECM-RAG를 처음 설치하고, 운영자가
@@ -14,10 +16,14 @@
 - 문서 처리: Docling 2.118.1, python-docx 1.2.0, EasyOCR 1.7.2
 - 임베딩: OpenAI 호환 BGE-M3 API
 - 답변 생성: OpenAI 호환 사내 LLM API
-- 인증: 사내 Java 인증 wrapper
+- 인증: 현재 임시 비활성, 향후 FastAPI → `service/login.py` 연동
 - DRM: Java DRM wrapper
 - 프로세스: FastAPI와 ingestion worker 분리
 - 저장소: PostgreSQL/pgvector 단일 저장소, ChromaDB 미사용
+
+> 임시 인증 정책(2026-10-22): 사내 로그인 구현 전까지
+> `RAG_AUTH_ENABLED=false`가 기본입니다. 첫 화면은 간편 업로드이고 일반 API도 세션 없이
+> 임시 사용자로 동작합니다. 8300/TCP는 반드시 승인된 사내 대역에만 개방하십시오.
 
 Windows/WSL 테스트 PC를 구축하는 경우에는 이 문서와 함께
 [`LOCAL_PC_TEST_ENV_SETUP.md`](LOCAL_PC_TEST_ENV_SETUP.md)를 참고합니다.
@@ -40,7 +46,7 @@ flowchart LR
     API -->|Hybrid 검색| DB
     API --> Embed
     API --> LLM[LLM :8000]
-    JavaAuth[Java 인증 wrapper] --> API
+    LoginPy[service/login.py] --> API
 ```
 
 핵심 원칙은 다음과 같습니다.
@@ -50,9 +56,10 @@ flowchart LR
 3. 검색은 PostgreSQL exact/FTS와 pgvector cosine 검색을 RRF로 결합합니다. cosine
    distance가 `retrieval.max_vector_distance`보다 크고 exact/FTS 근거도 없으면 일반
    대화로 판단하여 LLM을 호출하지 않습니다.
-4. `/api/v1/chat`은 로그인 세션을 요구하고, `/api/v1/external/answer`는 내부망 연동을
-   위해 인증하지 않습니다.
-5. 무인증 endpoint의 접근 제어는 호스트 방화벽 또는 reverse proxy ACL 책임입니다.
+4. 현재 임시 모드에서는 일반 화면/API도 세션 없이 동작합니다. 인증 전환 후
+   `/api/v1/chat`은 로그인 세션을 요구하고 `/api/v1/external/answer`만 무인증을 유지합니다.
+5. 임시 모드 전체와 무인증 external endpoint의 접근 제어는 호스트 방화벽 또는 reverse
+   proxy ACL 책임입니다.
 
 ## 3. 네트워크 및 연동 사전 점검
 
@@ -64,7 +71,7 @@ flowchart LR
 | ECM-RAG API/Worker | PostgreSQL | 5432/TCP | 메타데이터, queue, 청크, vector | 필수 |
 | ECM-RAG API/Worker | 임베딩 서버 | 8200/TCP | BGE-M3 embedding | 필수 |
 | ECM-RAG API | LLM 서버 | 8000/TCP | 검색 근거 기반 답변 | 채팅 사용 시 필수 |
-| ECM-RAG API | Java 인증 wrapper | 로컬 프로세스 | 사내 계정 인증 | UI 로그인 시 필수 |
+| ECM-RAG API | `service/login.py`의 사내 연동 대상 | 환경별 | 사내 계정 인증 | 인증 활성화 시 필수 |
 | ECM-RAG Worker | Java DRM wrapper | 로컬 프로세스 | 원본 복호화 | DRM 활성화 시 필수 |
 
 현재 알려진 모델 서버 예시는 다음과 같습니다.
@@ -242,7 +249,7 @@ python -m pip install -r requirements-dev.txt
 | transformers | 5.6.2 | 모델 로딩 기반 |
 | FlagEmbedding | 1.4.2 | 선택적 BGE reranker |
 | numpy | 2.4.4 | vector 검증·변환 |
-| tree-sitter-language-pack | 1.21.3 | Java 소스 심볼 추출 |
+| tree-sitter-language-pack | 1.21.3 | 소스 파서 호환성 유지(현행 Java/JAR는 안전 분석기 사용) |
 
 ChromaDB는 제거 대상 요구사항에 따라 어떤 설치 파일에도 포함하지 않습니다.
 
@@ -326,7 +333,17 @@ psql "$RAG_DB_DSN" -c \
   "SELECT atttypmod FROM pg_attribute WHERE attrelid='rag.chunks'::regclass AND attname='embedding';"
 ```
 
-## 9. Java 인증 wrapper 연동
+## 9. 향후 `login.py` 인증 연동
+
+기본 provider는 `python_module`입니다. [`service/login.py`](service/login.py)의
+`authenticate_employee()`를 구현하면 기존 `POST /api/v1/auth/login` endpoint가 호출하고,
+성공 결과로 PostgreSQL 세션과 HttpOnly 쿠키를 발급합니다. 상세 계약은
+[`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md)를 참고합니다.
+
+구현·시험 전에는 `RAG_AUTH_ENABLED=false`를 유지합니다. 완료 후 `true`로 바꾸고
+서비스를 재시작합니다.
+
+### 9.1 기존 Java wrapper 선택 연동
 
 Python은 회사 Java 라이브러리를 직접 import하지 않고 실행 가능한 wrapper를 호출합니다.
 상세 계약은 [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md)를 참고합니다.
@@ -444,6 +461,11 @@ Asset/Version을 만들지 않고 기존 job의 시도 횟수와 오류 상태�
 재접수합니다. 기존 작업이 `queued` 또는 `processing`이면 같은 job ID를 화면에 반환해
 그 작업을 계속 추적하며, 실제로 `completed`인 원본만 기존 문서 확인 대상으로 봅니다.
 
+일반 중복 후보는 동일 SHA-256, 동일 `repository + logical_path`, 동일 파일명 또는
+대소문자·공백을 정규화한 정확한 제목 일치로만 찾습니다. `builder.jar`와
+`builder-api.jar`처럼 이름이나 제목이 유사할 뿐인 자료는 후보로 보지 않습니다. 후보가
+발견되어도 자동으로 버전을 연결하지 않고 화면에서 새 버전/별도 신규 자산을 확인합니다.
+
 ## 11. Docling·EasyOCR·모델 설정
 
 현재 OCR 선택은 `easyocr`입니다.
@@ -496,6 +518,7 @@ chmod 600 .env
 RAG_PROFILE=rockylinux9
 RAG_DB_DSN=postgresql://raguser:비밀번호@DB주소:5432/ragdb
 
+RAG_AUTH_ENABLED=false
 RAG_AUTH_COMMAND=/srv/ecm-rag/bin/company-auth-wrapper
 RAG_DRM_COMMAND=/srv/ecm-rag/bin/decrypt-wrapper
 RAG_JAVA_COMMAND=java
@@ -523,6 +546,11 @@ ECM_RAG_WORKER_PROCESSES=2
 
 `.env`는 Git에 commit하지 않습니다. 값 확인 시 전체 DSN이나 비밀번호를 화면·티켓·로그에
 복사하지 않습니다.
+
+`RAG_AUTH_ENABLED=false`에서는 `/api/v1/auth/me`가 `temporary_access=true`인 임시
+사용자를 반환하고 로그인 쿠키를 요구하지 않습니다. Java 인증 구현·시험 후 `true`로
+바꾸고 서비스를 재시작합니다. 이 전환 전에는 외부 API뿐 아니라 일반 업로드·검색 API도
+사내 ACL로 보호해야 합니다.
 
 ### 12.3 주요 YAML 설정
 
@@ -671,15 +699,28 @@ JAR 디컴파일 소스가 검색 근거로 사용되면 `notices`와 답변 본
 
 ### 14.4 브라우저 화면
 
-- 로그인: `http://서버IP:8300/login`
-- 전체 업로드: `http://서버IP:8300/`
-- 간편 업로드: `http://서버IP:8300/spl_upload.html`
+- 임시 모드 첫 화면/간편 업로드: `http://서버IP:8300/`
+- 간편 업로드 직접 경로: `http://서버IP:8300/spl_upload.html`
+- 상세 업로드: `http://서버IP:8300/upload.html`
+- 로그인(인증 활성화 후): `http://서버IP:8300/login`
 - 검색/채팅: `http://서버IP:8300/search.html`
+- 데이터 관리(RDB·pgvector): `http://서버IP:8300/admin.html`
 - Swagger: 운영 profile에서는 비활성, local/test profile에서 `/docs`
+
+업로드·검색 화면의 데이터 관리 메뉴에서 `admin.html`로 이동합니다. 자산 삭제는 논리
+삭제라 관리자 화면에서 복구할 수 있지만, 검색 청크 삭제는 pgvector와 연결된 오류 이벤트·
+코드 심볼까지 물리 삭제하므로 먼저 DB 백업과 대상을 확인해야 합니다. 청크 본문 저장 시
+임베딩 서버가 즉시 호출되므로 임베딩 서버 장애 중에는 청크 생성·수정이 HTTP 502로
+실패하고 기존 데이터는 유지됩니다.
+
+인증 활성화 후 관리자 계정은 사내 로그인 응답의 `roles` 배열에 `admin`이 포함되어야
+합니다. 임시 인증 비활성 기간에는 애플리케이션 역할 검사가 적용되지 않으므로 reverse
+proxy 또는 방화벽 ACL로 관리자 PC 대역만 8300/TCP에 접근하도록 제한합니다.
 
 ## 15. 기능 시험 절차
 
-1. Java 인증으로 로그인합니다.
+1. 임시 모드에서는 첫 화면에서 임시 사용자 표시를 확인합니다. 인증 활성화 후에는 Java
+   인증으로 로그인합니다.
 2. 5MiB 이하 TXT 또는 DOCX를 먼저 업로드합니다.
 3. 처리 단계가 `대기 → 준비 → DRM 확인 → 문서 분석 → 임베딩 → 저장 → 완료`로 바뀌는지
    확인합니다.
@@ -777,6 +818,11 @@ rg -n "ERROR|Traceback|failed|lease lost|401|409|429|500|503" artifacts/logs
 - PostgreSQL 로그: 연결 실패, SQL/extension/vector 차원 오류
 - 모델 서버 로그: GPU OOM, context 초과, 모델명 불일치
 
+PostgreSQL 서버 로그와 실제 DB 파일 위치는 애플리케이션 `artifacts` 아래가 아닙니다.
+DB 계정으로 `SHOW data_directory;`를 실행하거나 systemd/journal 및 PostgreSQL 설정에서
+확인합니다. 애플리케이션 원본/산출물 위치는 `paths.upload_root`와
+`paths.artifact_root`이며 DB와 별도로 백업합니다.
+
 ## 18. 장애 유형별 조치
 
 ### 18.1 API가 시작되지 않음
@@ -820,9 +866,9 @@ psql "$RAG_DB_DSN" -c 'SELECT 1'
 ### 18.3 로그인 500/503
 
 - `RAG_PROFILE=rockylinux9`인지 확인
-- `RAG_AUTH_COMMAND` 경로와 실행권한 확인
-- wrapper를 `sngjng` 계정으로 stdin 호출
-- stdout이 JSON 한 건인지 확인
+- `service/login.py:authenticate_employee()`가 구현되었는지 확인
+- 사내 인증 서버 주소·인증서·timeout과 응답 변환 확인
+- `provider=java_command`인 기존 환경만 `RAG_AUTH_COMMAND` 실행권한과 stdout JSON 확인
 - 15초 timeout 내 응답하는지 확인
 - DB에 `rag.auth_sessions`가 존재하는지 확인
 
@@ -962,7 +1008,10 @@ pg_dump "$RAG_DB_DSN" --format=custom --schema=rag --file=/안전경로/pre-upda
 | 1 | `config/settings.yaml` | 모든 기본값과 외부 연동 주소 |
 | 2 | `service/config.py` | 공통 YAML·profile·환경변수 병합 |
 | 3 | `service/api.py` | router와 정적 화면 조립 |
+| 3-1 | `service/login.py` | 향후 사내 로그인 인증 구현 지점 |
 | 4 | `service/routes/ingestion.py` | 업로드 검증, 중복 후보, job 접수 |
+| 4-1 | `service/routes/admin.py` | 관리자 HTTP 상태·입력 검증·임베딩 재생성 |
+| 4-2 | `service/repositories/admin.py` | 관리자 자산·청크·작업 조회와 트랜잭션 SQL |
 | 5 | `service/repositories/assets.py` | Asset/Version/감사이력 SQL |
 | 6 | `service/repositories/jobs.py` | queue claim, lease, 청크/vector 저장 |
 | 7 | `service/worker.py` | DRM→파싱→임베딩→저장 orchestration |
@@ -974,7 +1023,8 @@ pg_dump "$RAG_DB_DSN" --format=custom --schema=rag --file=/안전경로/pre-upda
 | 13 | `service/answering.py` | 검색 근거와 LLM 결합 |
 | 14 | `service/llm.py` | OpenAI 호환 LLM 요청과 system prompt |
 | 15 | `service/routes/external.py` | JSON/string 무인증 내부망 endpoint |
-| 16 | `web/*.html` | 빌드 없는 화면과 API polling |
+| 16 | `service/stacktrace.py` | 예외·원인·오류코드·Java frame·fingerprint 추출 |
+| 17 | `web/*.html` | 빌드 없는 업로드·검색·관리 화면과 API polling |
 
 ### 21.1 계층별 수정 원칙
 
@@ -1020,15 +1070,18 @@ web/search.html 또는 내부 업무 시스템
 |---|---|---|---|
 | GET | `/health/live` | 없음 | API 프로세스 생존 |
 | GET | `/health/ready` | 없음 | DB 연결 준비 상태 |
-| POST | `/api/v1/auth/login` | 없음 | Java 인증 후 세션 생성 |
-| GET | `/api/v1/auth/me` | 세션 | 현재 사용자 |
-| POST | `/api/v1/ingestion/uploads` | 세션 | 원본 접수와 job 생성 |
-| GET | `/api/v1/ingestion/jobs/{id}` | 세션 | 처리 상태 polling |
-| POST | `/api/v1/search` | 세션 | 검색 결과만 반환 |
-| POST | `/api/v1/chat` | 세션 | 검색+LLM 답변 |
-| POST | `/api/v1/external/answer` | 없음 | 내부 시스템 검색+LLM 답변 |
-| GET | `/api/v1/assets/stats/counts` | 세션 | 유형별 자산 수 |
-| GET | `/api/v1/assets/{asset}/versions/{version}/download` | 세션 | 원본 다운로드 |
+| POST | `/api/v1/auth/login` | 없음 | 임시 사용자 반환 또는 Java 인증 후 세션 생성 |
+| GET | `/api/v1/auth/me` | 조건부 | 임시 사용자 또는 현재 세션 사용자 |
+| POST | `/api/v1/ingestion/uploads` | 조건부 | 원본 접수와 job 생성 |
+| GET | `/api/v1/ingestion/jobs/{id}` | 조건부 | 처리 상태 polling |
+| POST | `/api/v1/search` | 조건부 | 검색 결과만 반환 |
+| POST | `/api/v1/chat` | 조건부 | 검색+LLM 답변 |
+| POST | `/api/v1/external/answer` | 없음 | 내부 시스템 검색+LLM 답변·스택트레이스 분석 |
+| GET | `/api/v1/assets/stats/counts` | 조건부 | 유형별 자산 수 |
+| GET | `/api/v1/assets/{asset}/versions/{version}/download` | 조건부 | 원본 다운로드 |
+
+`조건부`는 `RAG_AUTH_ENABLED=false`일 때 세션 없이 임시 사용자로, `true`일 때 HttpOnly
+세션으로 처리된다는 의미입니다.
 
 ## 23. 운영 인수 체크리스트
 
@@ -1038,7 +1091,7 @@ web/search.html 또는 내부 업무 시스템
 - [ ] embedding 차원 1024 확인
 - [ ] `.env` 권한 600 확인
 - [ ] Docling artifact와 EasyOCR weight 오프라인 실행 확인
-- [ ] Java 인증 성공/실패/timeout 시험
+- [ ] `login.py` 인증 성공/실패/timeout 시험
 - [ ] DRM 성공/실패/timeout 시험
 - [ ] API/worker 다중 프로세스 기동 확인
 - [ ] `/health/live`, `/health/ready` 성공
@@ -1058,5 +1111,6 @@ web/search.html 또는 내부 업무 시스템
 - [`ARCHITECTURE_EDITABLE.mmd`](ARCHITECTURE_EDITABLE.mmd): 편집 가능한 구성도
 - [`SCREEN_API_WORKFLOW.md`](SCREEN_API_WORKFLOW.md): 화면부터 DB까지 호출 흐름
 - [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md): Java 인증 계약
+- [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md): 향후 `login.py` 인증 구현 계약
 - [`LOCAL_PC_TEST_ENV_SETUP.md`](LOCAL_PC_TEST_ENV_SETUP.md): Windows/WSL 재현 절차
 - [`WORKLOG_PGVECTOR.md`](WORKLOG_PGVECTOR.md): PostgreSQL/pgvector 전환 작업 기록

@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from service.config import get_settings
-from service.routes import assets, auth, chat, external, ingestion, search, system
+from service.routes import admin, assets, auth, chat, external, ingestion, search, system
 
 
 # get_settings()는 프로세스 안에서 캐시된다. 운영 중 profile이 임의로 바뀌지 않게 하고,
@@ -28,6 +28,7 @@ app.include_router(assets.router, prefix=settings.server.api_prefix)
 app.include_router(ingestion.router, prefix=settings.server.api_prefix)
 app.include_router(search.router, prefix=settings.server.api_prefix)
 app.include_router(chat.router, prefix=settings.server.api_prefix)
+app.include_router(admin.router, prefix=settings.server.api_prefix)
 # external router만 의도적으로 로그인 dependency가 없다. 내부망 전용이라는 배포 전제를
 # 바꾸는 경우 이 줄을 그대로 공개하지 말고 인증 gateway/API key 계층을 먼저 추가한다.
 app.include_router(external.router, prefix=settings.server.api_prefix)
@@ -36,17 +37,25 @@ app.mount("/assets", StaticFiles(directory=settings.paths.web_root / "assets"), 
 
 @app.get("/", include_in_schema=False)
 def index():
-    """빌드 과정이 없는 단일 업로드 화면을 반환한다.
+    """인증 비활성 기간의 기본 화면인 간편 업로드 화면을 반환한다.
 
     web_root는 설정 로더가 프로젝트 루트 기준 절대 경로로 정규화하므로 실행 디렉터리에
     영향을 받지 않는다.
     """
+    return FileResponse(settings.paths.web_root / "spl_upload.html", media_type="text/html")
+
+
+@app.get("/upload.html", include_in_schema=False)
+def detailed_upload_page():
+    """업무분류와 버전 정보를 포함하는 상세 업로드 화면을 반환한다."""
     return FileResponse(settings.paths.web_root / "upload.html", media_type="text/html")
 
 
 @app.get("/login", include_in_schema=False)
 def login_page():
     """사내 인증 모듈과 연결되는 로그인 화면을 반환한다."""
+    if not settings.security.authentication.enabled:
+        return RedirectResponse(url="/", status_code=307)
     return FileResponse(settings.paths.web_root / "login.html", media_type="text/html")
 
 
@@ -60,3 +69,9 @@ def simplified_upload_page():
 def search_page():
     """인증 사용자가 문서자산을 자연어로 조회하는 화면을 반환한다."""
     return FileResponse(settings.paths.web_root / "search.html", media_type="text/html")
+
+
+@app.get("/admin.html", include_in_schema=False)
+def admin_page():
+    """PostgreSQL 자산과 pgvector 청크를 관리하는 내부 운영 화면을 반환한다."""
+    return FileResponse(settings.paths.web_root / "admin.html", media_type="text/html")
