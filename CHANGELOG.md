@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 업로드·검색 화면의 데이터 관리 링크를 기본 숨김 처리하고 인증 사용자 역할에
+  `admin`이 포함된 경우에만 표시하도록 변경
+- 관리자 자산 논리 삭제 시 pgvector는 보존되어 검색에서만 제외되고, 청크 물리 삭제 시
+  embedding과 연결 오류·심볼 데이터가 함께 제거되는 삭제 정책을 운영 문서에 명시
 - **데이터 관리** `admin.html`과 `/api/v1/admin`을 추가해 PostgreSQL 자산 metadata의 CRUD·복구,
   Version 조회, pgvector 검색 청크 CRUD, 처리 작업 조회·재시도를 한 화면에서 지원
 - 관리자 청크 본문 생성·수정 시 임베딩을 자동 재생성하고 raw vector 직접 입력을 차단;

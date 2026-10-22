@@ -288,6 +288,10 @@ router를 사용합니다. 인증이
 raw vector 배열은 크고 사람이 안전하게 수정하기 어렵기 때문에 화면과 응답에서 제외합니다.
 대신 `embedding_model`과 `embedding_dimensions`를 표시하고, 청크 저장 시 현재 profile의
 임베딩 adapter를 호출해 설정 차원을 검증한 후 본문과 vector를 같은 트랜잭션에 저장합니다.
+자산 DELETE는 `deleted_at`만 갱신하므로 `chunks.embedding`을 물리 삭제하지 않습니다.
+검색 SQL의 `assets.deleted_at IS NULL` 조건이 해당 자산을 검색 결과에서 제외합니다. 청크
+DELETE는 embedding이 포함된 `chunks` 행을 삭제하며 외래키 cascade가 연결 오류 이벤트,
+스택 프레임 및 코드 심볼을 함께 제거합니다.
 
 ## 6. 검색·답변 화면과 외부 연계 흐름
 

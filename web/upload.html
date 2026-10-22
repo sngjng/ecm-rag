@@ -1651,6 +1651,8 @@
             class="search-menu"
             href="admin.html"
             aria-label="RDB와 pgvector 데이터 관리 화면으로 이동"
+            data-admin-only
+            hidden
           >
             <span class="search-menu__icon" aria-hidden="true">
               <svg
@@ -1888,6 +1890,12 @@
           return;
         }
         const user = await response.json();
+        const roles = Array.isArray(user.roles)
+          ? user.roles.map((role) => String(role).toLowerCase())
+          : [];
+        document.querySelectorAll("[data-admin-only]").forEach((element) => {
+          element.hidden = !roles.includes("admin");
+        });
         document.querySelector("#user-name").textContent =
           `${user.employee_name} (${user.employee_id})`;
         document.querySelector("#user-department").textContent =

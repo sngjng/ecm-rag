@@ -778,6 +778,8 @@
             class="upload-link"
             href="admin.html"
             aria-label="RDB와 pgvector 데이터 관리 화면으로 이동"
+            data-admin-only
+            hidden
           >
             <svg
               viewBox="0 0 24 24"
@@ -958,6 +960,12 @@
         }
 
         const user = await response.json();
+        const roles = Array.isArray(user.roles)
+          ? user.roles.map((role) => String(role).toLowerCase())
+          : [];
+        document.querySelectorAll("[data-admin-only]").forEach((element) => {
+          element.hidden = !roles.includes("admin");
+        });
         document.querySelector("#user-name").textContent =
           `${user.employee_name} (${user.employee_id})`;
         document.querySelector("#user-department").textContent =

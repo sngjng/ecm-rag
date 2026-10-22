@@ -707,8 +707,10 @@ JAR 디컴파일 소스가 검색 근거로 사용되면 `notices`와 답변 본
 - 데이터 관리(RDB·pgvector): `http://서버IP:8300/admin.html`
 - Swagger: 운영 profile에서는 비활성, local/test profile에서 `/docs`
 
-업로드·검색 화면의 데이터 관리 메뉴에서 `admin.html`로 이동합니다. 자산 삭제는 논리
-삭제라 관리자 화면에서 복구할 수 있지만, 검색 청크 삭제는 pgvector와 연결된 오류 이벤트·
+업로드·검색 화면의 데이터 관리 메뉴는 `/api/v1/auth/me` 응답의 `roles`에 `admin`이
+포함된 경우에만 표시되며 `admin.html`로 이동합니다. 자산 삭제는 `assets.deleted_at`만
+기록하는 논리 삭제이므로 Version과 `chunks.embedding`은 DB에 보존되고 검색 결과에서만
+제외됩니다. 반면 검색 청크 삭제는 해당 행의 pgvector와 연결된 오류 이벤트·스택 프레임·
 코드 심볼까지 물리 삭제하므로 먼저 DB 백업과 대상을 확인해야 합니다. 청크 본문 저장 시
 임베딩 서버가 즉시 호출되므로 임베딩 서버 장애 중에는 청크 생성·수정이 HTTP 502로
 실패하고 기존 데이터는 유지됩니다.
@@ -716,6 +718,11 @@ JAR 디컴파일 소스가 검색 근거로 사용되면 `notices`와 답변 본
 인증 활성화 후 관리자 계정은 사내 로그인 응답의 `roles` 배열에 `admin`이 포함되어야
 합니다. 임시 인증 비활성 기간에는 애플리케이션 역할 검사가 적용되지 않으므로 reverse
 proxy 또는 방화벽 ACL로 관리자 PC 대역만 8300/TCP에 접근하도록 제한합니다.
+
+DB에서 `assets`를 직접 `DELETE`하면 하위 Version·Job·Chunk에 `ON DELETE CASCADE`가
+설정되어 있지만, 감사 이력 `upload_audit`은 cascade 대상이 아니므로 이력이 존재하면
+외래키가 물리 삭제를 차단합니다. 운영자는 관리자 API의 논리 삭제를 기본 절차로 사용하고
+DB 직접 삭제는 감사 이력 보존 정책과 백업을 확정한 후 별도 작업으로 수행합니다.
 
 ## 15. 기능 시험 절차
 
