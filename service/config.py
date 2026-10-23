@@ -209,6 +209,17 @@ class AuthenticationSettings(SettingsModel):
     enabled: bool = False
     provider: Literal["python_module", "java_command", "development_stub"] = "python_module"
     java_command: str = ""
+    # python_module provider가 JPype로 사내 EAI Java VO를 호출할 때 사용하는 설정이다.
+    # 서버별 경로는 YAML에 직접 기록하지 않고 환경변수 치환값으로 주입한다.
+    jvm_path: str = ""
+    java_base_dir: str = ""
+    java_classpath: str = ""
+    outbound_process_class: str = "cis.internal.process.outbound.OutboundProcess"
+    encrypt_util_class: str = "cis.internal.util.EncryptUtil"
+    request_vo_class: str = "ZZUL0001VO"
+    response_vo_class: str = "ZZUL0002VO"
+    interface_id: str = "IR_HI-FMSCLIENT_0001"
+    system_id: str = "000164"
     timeout_seconds: int = Field(default=15, ge=1, le=120)
     session_hours: int = Field(default=8, ge=1, le=168)
     cookie_name: str = "ecm_rag_session"
@@ -217,6 +228,9 @@ class AuthenticationSettings(SettingsModel):
     temporary_employee_id: str = "temporary"
     temporary_employee_name: str = "임시 사용자"
     temporary_department: str = "IDC본부"
+    # 권한 테이블이 비어 있는 최초 구축 시 관리자 화면에 진입할 사번 목록이다.
+    # 쉼표로 구분하며 운영 환경의 .env에서만 설정한다.
+    bootstrap_admin_employee_ids: str = ""
 
 
 class SecuritySettings(SettingsModel):

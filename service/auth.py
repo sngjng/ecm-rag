@@ -33,7 +33,9 @@ def normalize_client_ip(value: str | None) -> str | None:
         return None
 
 
-def authenticate(employee_id: str, password: str) -> EmployeeIdentity:
+def authenticate(
+    employee_id: str, password: str, client_ip: str | None = None
+) -> EmployeeIdentity:
     """설정한 provider의 인증 결과를 검증된 사원정보 객체로 변환한다."""
     settings = get_settings().security.authentication
 
@@ -44,6 +46,7 @@ def authenticate(employee_id: str, password: str) -> EmployeeIdentity:
             raise HTTPException(401, "사번 또는 비밀번호가 올바르지 않습니다")
         return EmployeeIdentity(
             employee_id="test",
+            user_id="test",
             employee_name="테스트 사용자",
             department="IDC본부",
             email="test@test.local",
@@ -55,14 +58,19 @@ def authenticate(employee_id: str, password: str) -> EmployeeIdentity:
     if settings.provider == "python_module":
         from service.login import authenticate_employee
 
-        return authenticate_employee(employee_id, password)
+        return authenticate_employee(employee_id, password, client_ip)
 
     if not settings.java_command.strip():
         raise HTTPException(503, "사내 로그인 연동 모듈이 설정되지 않았습니다")
 
     command = shlex.split(settings.java_command, posix=os.name != "nt")
     payload = json.dumps(
-        {"employee_id": employee_id, "password": password}, ensure_ascii=False
+        {
+            "employee_id": employee_id,
+            "password": password,
+            "client_ip": client_ip or "",
+        },
+        ensure_ascii=False,
     )
     try:
         completed = subprocess.run(

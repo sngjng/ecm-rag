@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 64" role="img" aria-labelledby="title description">
+  <title id="title">문서를 나르는 업로더 개미</title>
+  <desc id="description">옆으로 걸으며 머리 위에 큰 문서를 들어 나르는 여섯 다리 개미</desc>
+  <defs>
+    <linearGradient id="antBody" x1="8" y1="30" x2="57" y2="55" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5366cb"/>
+      <stop offset="1" stop-color="#172b6c"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="24" y1="3" x2="58" y2="31" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dce5ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 머리 위로 들어 운반하는 큰 문서 -->
+  <path d="M24 4h25l9 9v20H24Z" fill="url(#paper)" stroke="#3156e8" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M49 4v10h9" fill="#b9c8ff" stroke="#3156e8" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M31 17h19M31 23h19M31 29h12" fill="none" stroke="#7188df" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- 문서를 받쳐 든 앞다리 -->
+  <g fill="none" stroke="#172b6c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m43 38 2-9 5-5"/>
+    <path d="m48 40 5-8 4-3"/>
+  </g>
+
+  <!-- 옆모습의 머리·가슴·배: 개미 특유의 세 마디 -->
+  <ellipse cx="15" cy="43" rx="11" ry="9" fill="url(#antBody)" stroke="#0e1f53" stroke-width="2.4"/>
+  <circle cx="32" cy="42" r="7" fill="url(#antBody)" stroke="#0e1f53" stroke-width="2.4"/>
+  <circle cx="46" cy="41" r="8" fill="url(#antBody)" stroke="#0e1f53" stroke-width="2.4"/>
+  <path d="M25 42h-2M39 42h-1" stroke="#0e1f53" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 걸어가는 여섯 다리 -->
+  <g fill="none" stroke="#172b6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m25 46-8 6-5 8"/>
+    <path d="m31 48-3 8 2 5"/>
+    <path d="m36 47 6 6 1 8"/>
+    <path d="m20 39-8-4-7 2"/>
+    <path d="m31 36-3-7-5-3"/>
+    <path d="m38 38 5-6 1-6"/>
+  </g>
+
+  <!-- 더듬이와 표정 -->
+  <g fill="none" stroke="#172b6c" stroke-width="2.5" stroke-linecap="round">
+    <path d="m49 34 7-8 7-1"/>
+    <path d="m52 37 8-5 6 2"/>
+  </g>
+  <circle cx="63" cy="25" r="2" fill="#3156e8"/>
+  <circle cx="66" cy="34" r="2" fill="#3156e8"/>
+  <circle cx="49" cy="39" r="1.6" fill="#fff"/>
+  <path d="M50 44c-2 1-4 1-5 0" fill="none" stroke="#aebcff" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

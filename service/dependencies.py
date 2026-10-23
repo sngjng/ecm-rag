@@ -13,6 +13,18 @@ from service.config import get_settings
 from service.repositories import auth
 
 
+ROLE_ALIASES = {
+    # 이전 배포 세션과의 호환. 신규 세션/DB에는 아래 표준 키만 저장한다.
+    "user": "viewer",
+    "general": "viewer",
+    "viewer": "viewer",
+    "operator": "uploader",
+    "uploader": "uploader",
+    "thanos": "admin",
+    "admin": "admin",
+}
+
+
 def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -22,8 +34,10 @@ def temporary_user() -> dict:
     settings = get_settings().security.authentication
     return {
         "employee_id": settings.temporary_employee_id,
+        "user_id": settings.temporary_employee_id,
         "employee_name": settings.temporary_employee_name,
         "department": settings.temporary_department,
+        "upper_department": "",
         "email": "",
         "roles": ["uploader"],
         "temporary_access": True,
@@ -48,15 +62,18 @@ def authorize(request: Request) -> dict:
 
 
 def authorize_admin(request: Request) -> dict:
-    """관리 API는 인증 활성화 시 ``admin`` 역할이 있는 세션만 허용한다.
-
-    임시 인증 비활성 기간에는 화면 시험을 위해 접근을 허용한다. 이 기간에는 애플리케이션
-    권한 검사가 없으므로 운영 방화벽·reverse proxy에서 관리자 PC 대역으로 제한해야 한다.
-    """
+    """관리 화면/API는 관리자 역할만 허용한다."""
     user = authorize(request)
-    if user.get("temporary_access"):
-        return user
-    roles = {str(role).lower() for role in (user.get("roles") or [])}
+    roles = {ROLE_ALIASES.get(str(role).lower(), str(role).lower()) for role in (user.get("roles") or [])}
     if "admin" not in roles:
         raise HTTPException(403, "관리자 권한이 필요합니다")
+    return user
+
+
+def authorize_uploader(request: Request) -> dict:
+    """업로드·수정 API는 업로더 또는 관리자 역할만 허용한다."""
+    user = authorize(request)
+    roles = {ROLE_ALIASES.get(str(role).lower(), str(role).lower()) for role in (user.get("roles") or [])}
+    if not roles.intersection({"uploader", "admin"}):
+        raise HTTPException(403, "업로더 권한이 필요합니다")
     return user

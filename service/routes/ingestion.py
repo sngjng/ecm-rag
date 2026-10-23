@@ -24,12 +24,14 @@ from fastapi.responses import JSONResponse
 from psycopg.errors import UniqueViolation
 from service.auth import normalize_client_ip
 from service.config import get_settings
-from service.dependencies import authorize
+from service.dependencies import authorize_uploader
 from service.repositories import assets, jobs
 from service.schemas import AssetCreate
 
 
-router = APIRouter(prefix="/ingestion", tags=["ingestion"], dependencies=[Depends(authorize)])
+router = APIRouter(
+    prefix="/ingestion", tags=["ingestion"], dependencies=[Depends(authorize_uploader)]
+)
 
 
 @router.post("/uploads", status_code=status.HTTP_202_ACCEPTED)
@@ -43,7 +45,7 @@ async def upload(
     lifecycle_status: str = Form(""), is_current: bool = Form(True),
     repository: str = Form(""), branch: str = Form(""), logical_path: str = Form(""),
     duplicate_action: str = Form("check"), confirmed_asset_id: str = Form(""),
-    current_user: dict = Depends(authorize),
+    current_user: dict = Depends(authorize_uploader),
 ):
     """원본 파일을 저장하고 비동기 처리 작업을 등록한다.
 

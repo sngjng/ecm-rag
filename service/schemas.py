@@ -16,6 +16,7 @@ LifecycleStatus = Literal["draft", "approved", "obsolete"]
 RelationType = Literal[
     "supersedes", "references", "related_to", "derived_from", "resolved_by", "applies_to"
 ]
+AccessRole = Literal["viewer", "uploader", "admin"]
 
 
 class LoginRequest(BaseModel):
@@ -25,10 +26,22 @@ class LoginRequest(BaseModel):
 
 class EmployeeIdentity(BaseModel):
     employee_id: str = Field(min_length=1, max_length=50)
+    # 사내 응답의 emp_no와 user_id가 다른 환경을 위해 두 값을 별도로 보존한다.
+    user_id: str = Field(default="", max_length=50)
     employee_name: str = Field(min_length=1, max_length=100)
     department: str = Field(default="", max_length=200)
+    upper_department: str = Field(default="", max_length=200)
     email: str = Field(default="", max_length=320)
     roles: list[str] = Field(default_factory=list)
+
+
+class AccessRoleUpsert(BaseModel):
+    """관리자가 사번에 부여할 단일 접근 권한과 표시용 조직정보."""
+
+    role: AccessRole
+    employee_name: str | None = Field(default=None, max_length=100)
+    department: str | None = Field(default=None, max_length=200)
+    upper_department: str | None = Field(default=None, max_length=200)
 
 
 class AssetCreate(BaseModel):

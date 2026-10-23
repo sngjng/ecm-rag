@@ -34,6 +34,9 @@ tqdm==4.67.3
 httpx==0.28.1
 python-multipart==0.0.22
 
+# 사내 EAI Java VO 로그인 bridge (운영 pip list 버전과 일치)
+jpype1==1.7.1
+
 # PostgreSQL 전환 신규 의존성: 운영 pip list에 없으므로 현재 검증 버전을 고정한다.
 psycopg[binary]==3.3.6
 pgvector==0.5.0

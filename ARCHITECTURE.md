@@ -9,12 +9,11 @@
 API는 대용량 파싱을 수행하지 않고 파일 저장과 DB 작업 등록까지만 담당합니다. Worker는
 독립 프로세스로 `ingestion_jobs`를 확보해 파싱부터 적재까지 수행합니다.
 
-현재는 Java 로그인 구현 전 임시 운영 모드로, 공통 `authorize` 의존성이 세션 대신
+기본값은 실제 사내망 검증 전의 임시 운영 모드로, 공통 `authorize` 의존성이 세션 대신
 설정된 임시 사용자 정보를 반환합니다. 따라서 문서 접수 시에도 임시 사번·성명·부서
-snapshot을 Version/Job과 원자적으로 감사 이력에 저장합니다. 추후
-`service/login.py`를 구현하고 `RAG_AUTH_ENABLED=true`로 전환하면 사내 인증 로직,
-PostgreSQL 서버 세션과
-HttpOnly 쿠키 검증을 같은 route에 다시 적용합니다.
+snapshot을 Version/Job과 원자적으로 감사 이력에 저장합니다. `service/login.py`에는
+JPype/EAI Java VO 인증이 구현되어 있으며, 사내 환경 설정 후 `RAG_AUTH_ENABLED=true`로
+전환하면 PostgreSQL 서버 세션과 HttpOnly 쿠키 검증을 같은 route에 적용합니다.
 
 임시 모드에서는 브라우저 API도 세션 없이 사용할 수 있습니다. 인증 활성화 후에는
 브라우저의 `/api/v1/chat` 등 일반 API가 세션 인증을 사용하고, 사내 다른 시스템용
@@ -35,15 +34,15 @@ HttpOnly 쿠키 검증을 같은 route에 다시 적용합니다.
 /api/v1/ingestion       업로드 접수·작업 상태·재시도
 /api/v1/search          조건부 인증 검색 결과 API
 /api/v1/chat            조건부 인증 검색+LLM 답변 API
-/api/v1/admin/*         관리자 역할 기반 자산·청크 CRUD와 작업 재시도
+/api/v1/admin/*         관리자 역할 기반 자산·청크 CRUD·작업 재시도·사용자 권한 관리
 /api/v1/external/answer 무인증 내부망 검색+LLM/스택트레이스 분석 API
 ```
 
 업로드·검색 화면에서 관리자 화면으로 이동할 수 있습니다. 관리자 API는 원시 vector를
 클라이언트에 노출하지 않으며 본문 변경 시 임베딩 adapter를 통해 vector를 다시 생성합니다.
 자산 삭제는 soft delete, 청크 삭제는 관련 오류 이벤트·코드 심볼까지 cascade되는 물리
-삭제입니다. 인증 활성화 시 `admin` 역할을 강제하고 임시 인증 모드에서는 네트워크 ACL로
-접근 범위를 제한합니다.
+삭제입니다. `user_access_roles`의 뷰어·업로더·관리자 역할을 화면과 API 양쪽에서 강제하며
+임시 인증 모드는 업로더로 동작해 관리자 기능을 사용할 수 없습니다.
 
 ## 데이터 모델
 
@@ -111,6 +110,7 @@ embedding 문맥에 저장합니다. 답변 근거가 디컴파일 코드이면 
 `config/profiles/{RAG_PROFILE}.yaml`을 deep-merge한 뒤 환경 변수 표현식을 치환합니다.
 DSN, 외부 모델 API 키, 선택적인 Java 인증 wrapper 경로처럼 민감하거나 서버별인 값만 환경 변수로 주입합니다.
 
-대표 환경 변수는 `RAG_DB_DSN`, `RAG_LLM_*`, `RAG_EMBED_*`, `RAG_AUTH_COMMAND`,
+대표 환경 변수는 `RAG_DB_DSN`, `RAG_LLM_*`, `RAG_EMBED_*`, `RAG_AUTH_JVM_PATH`,
+`RAG_AUTH_JAVA_DIR`, 선택 wrapper용 `RAG_AUTH_COMMAND`,
 `RAG_DRM_COMMAND`, `RAG_JAVA_COMMAND`, `RAG_CFR_JAR_PATH`입니다. 설정 적용 순서는 공통
 YAML → profile YAML → `${ENV:-default}` 치환입니다.

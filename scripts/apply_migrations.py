@@ -18,6 +18,9 @@ from service.db import connect
 MIGRATIONS = (
     ROOT / "sql" / "002_session_auth_audit.sql",
     ROOT / "sql" / "003_code_symbol_stack_lookup.sql",
+    ROOT / "sql" / "004_eai_login_identity.sql",
+    ROOT / "sql" / "005_user_access_roles.sql",
+    ROOT / "sql" / "006_rename_general_role_to_viewer.sql",
 )
 
 

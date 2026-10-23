@@ -16,7 +16,7 @@
 - 문서 처리: Docling 2.118.1, python-docx 1.2.0, EasyOCR 1.7.2
 - 임베딩: OpenAI 호환 BGE-M3 API
 - 답변 생성: OpenAI 호환 사내 LLM API
-- 인증: 현재 임시 비활성, 향후 FastAPI → `service/login.py` 연동
+- 인증: 기본 비활성, FastAPI → JPype `service/login.py` → 사내 EAI Java VO
 - DRM: Java DRM wrapper
 - 프로세스: FastAPI와 ingestion worker 분리
 - 저장소: PostgreSQL/pgvector 단일 저장소, ChromaDB 미사용
@@ -236,6 +236,7 @@ python -m pip install -r requirements-dev.txt
 | psycopg[binary] | 3.3.6 | PostgreSQL 트랜잭션과 SQL 실행 |
 | pgvector | 0.5.0 | Python/NumPy vector 타입 연결 |
 | httpx | 0.28.1 | 임베딩·LLM HTTP 호출 |
+| JPype1 | 1.7.1 | FastAPI 프로세스에서 사내 EAI Java VO 호출 |
 | docling | 2.118.1 | PDF 구조·표·본문 변환 |
 | python-docx | 1.2.0 | DOCX 문단·표 처리 |
 | easyocr | 1.7.2 | 현재 선택된 OCR 엔진 |
@@ -318,8 +319,8 @@ psql "$RAG_DB_DSN" -v ON_ERROR_STOP=1 \
   -f artifacts/sql/001_pgvector.rendered.sql
 ```
 
-`bin/start.sh`는 증분 migration `002_session_auth_audit.sql`과
-`003_code_symbol_stack_lookup.sql`을 매번 안전하게 확인하지만, 신규 DB의
+`bin/start.sh`는 증분 migration `002_session_auth_audit.sql`부터
+`005_user_access_roles.sql`까지 매번 안전하게 확인하지만, 신규 DB의
 `001_pgvector.sql`은 자동 생성하지 않습니다.
 
 검증:
@@ -333,15 +334,31 @@ psql "$RAG_DB_DSN" -c \
   "SELECT atttypmod FROM pg_attribute WHERE attrelid='rag.chunks'::regclass AND attname='embedding';"
 ```
 
-## 9. 향후 `login.py` 인증 연동
+## 9. `login.py` 사내 EAI 인증 연동
 
-기본 provider는 `python_module`입니다. [`service/login.py`](service/login.py)의
-`authenticate_employee()`를 구현하면 기존 `POST /api/v1/auth/login` endpoint가 호출하고,
-성공 결과로 PostgreSQL 세션과 HttpOnly 쿠키를 발급합니다. 상세 계약은
-[`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md)를 참고합니다.
+기본 provider는 `python_module`입니다. [`service/login.py`](service/login.py)는 JPype로
+`OutboundProcess`, 요청 `ZZUL0001VO`, 응답 `ZZUL0002VO`를 호출합니다. 정상 응답을 받으면
+기존 `POST /api/v1/auth/login` endpoint가 PostgreSQL 세션과 HttpOnly 쿠키를 발급합니다.
+상세 계약은 [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md)를 참고합니다.
 
-구현·시험 전에는 `RAG_AUTH_ENABLED=false`를 유지합니다. 완료 후 `true`로 바꾸고
-서비스를 재시작합니다.
+사내망과 Java 라이브러리가 없는 개발 PC에서는 `RAG_AUTH_ENABLED=false`를 유지합니다.
+사내 테스트 환경에서 다음 값을 설정하고 migration 적용 후 `true`로 전환합니다.
+
+```dotenv
+RAG_AUTH_ENABLED=true
+RAG_AUTH_JVM_PATH=/Product/jdk/open/jdk-21.0.11+10/lib/server/libjvm.so
+RAG_AUTH_JAVA_DIR=/Appl/chatllm/java
+RAG_AUTH_CLASSPATH=
+RAG_AUTH_INTERFACE_ID=IR_HI-FMSCLIENT_0001
+RAG_AUTH_SYSTEM_ID=000164
+RAG_AUTH_ADMIN_EMPLOYEE_IDS=IB1020
+```
+
+`RAG_AUTH_CLASSPATH`가 비어 있으면 `RAG_AUTH_JAVA_DIR` 아래의 제공된 표준 JAR 7개와
+Java 디렉터리를 자동으로 사용합니다. 별도 배치 구조에서는 Linux `:` 구분자로 전체
+classpath를 입력합니다. 인증 활성화 전에 `python -m scripts.apply_migrations` 또는
+`bin/start.sh`를 실행해 `004_eai_login_identity.sql`과
+`005_user_access_roles.sql`을 적용해야 합니다.
 
 ### 9.1 기존 Java wrapper 선택 연동
 
@@ -742,9 +759,13 @@ JSON의 `include_chunks`를 생략하거나 `true`로 보내면 `results` 청크
 임베딩 서버가 즉시 호출되므로 임베딩 서버 장애 중에는 청크 생성·수정이 HTTP 502로
 실패하고 기존 데이터는 유지됩니다.
 
-인증 활성화 후 관리자 계정은 사내 로그인 응답의 `roles` 배열에 `admin`이 포함되어야
-합니다. 임시 인증 비활성 기간에는 애플리케이션 역할 검사가 적용되지 않으므로 reverse
-proxy 또는 방화벽 ACL로 관리자 PC 대역만 8300/TCP에 접근하도록 제한합니다.
+사내 EAI는 신원만 확인하고 애플리케이션 권한은 `rag.user_access_roles`에서 결정합니다.
+뷰어(`viewer`)는 조회 화면만, 업로더(`uploader`)는 관리자 화면을 제외한 모든 화면,
+관리자(`admin`)는 권한 관리까지 사용할 수 있습니다. 최초 관리자 사번은 `.env`의
+`RAG_AUTH_ADMIN_EMPLOYEE_IDS`에 지정합니다. 관리자 화면의 `사용자 권한` 탭에서 권한을
+등록·수정·삭제하며, 미등록 사원은 업로더 권한을 받고 변경 대상의 기존 세션은 즉시
+폐기됩니다. 임시 인증 비활성 모드는
+업로더로 동작하므로 관리자 화면/API에는 접근할 수 없습니다.
 
 DB에서 `assets`를 직접 `DELETE`하면 하위 Version·Job·Chunk에 `ON DELETE CASCADE`가
 설정되어 있지만, 감사 이력 `upload_audit`은 cascade 대상이 아니므로 이력이 존재하면
@@ -1042,7 +1063,7 @@ pg_dump "$RAG_DB_DSN" --format=custom --schema=rag --file=/안전경로/pre-upda
 | 1 | `config/settings.yaml` | 모든 기본값과 외부 연동 주소 |
 | 2 | `service/config.py` | 공통 YAML·profile·환경변수 병합 |
 | 3 | `service/api.py` | router와 정적 화면 조립 |
-| 3-1 | `service/login.py` | 향후 사내 로그인 인증 구현 지점 |
+| 3-1 | `service/login.py` | JPype JVM 초기화, EAI Java VO 로그인, 사원정보 매핑 |
 | 4 | `service/routes/ingestion.py` | 업로드 검증, 중복 후보, job 접수 |
 | 4-1 | `service/routes/admin.py` | 관리자 HTTP 상태·입력 검증·임베딩 재생성 |
 | 4-2 | `service/repositories/admin.py` | 관리자 자산·청크·작업 조회와 트랜잭션 SQL |
@@ -1145,6 +1166,6 @@ web/search.html 또는 내부 업무 시스템
 - [`ARCHITECTURE_EDITABLE.mmd`](ARCHITECTURE_EDITABLE.mmd): 편집 가능한 구성도
 - [`SCREEN_API_WORKFLOW.md`](SCREEN_API_WORKFLOW.md): 화면부터 DB까지 호출 흐름
 - [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md): Java 인증 계약
-- [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md): 향후 `login.py` 인증 구현 계약
+- [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md): JPype `login.py` 설정·응답 매핑·시험 절차
 - [`LOCAL_PC_TEST_ENV_SETUP.md`](LOCAL_PC_TEST_ENV_SETUP.md): Windows/WSL 재현 절차
 - [`WORKLOG_PGVECTOR.md`](WORKLOG_PGVECTOR.md): PostgreSQL/pgvector 전환 작업 기록

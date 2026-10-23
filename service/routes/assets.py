@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
-from service.dependencies import authorize
+from service.dependencies import authorize, authorize_uploader
 from service.config import get_settings
 from service.repositories import assets
 from service.schemas import AssetCreate, AssetType, AssetUpdate, RelationCreate
@@ -20,7 +20,7 @@ from service.schemas import AssetCreate, AssetType, AssetUpdate, RelationCreate
 router = APIRouter(prefix="/assets", tags=["assets"], dependencies=[Depends(authorize)])
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(authorize_uploader)])
 def create_asset(payload: AssetCreate):
     """파일 없이 메타데이터 Asset을 먼저 생성한다."""
     return assets.create_asset(payload)
@@ -55,7 +55,7 @@ def get_asset(asset_id: UUID):
     return result
 
 
-@router.patch("/{asset_id}")
+@router.patch("/{asset_id}", dependencies=[Depends(authorize_uploader)])
 def update_asset(asset_id: UUID, payload: AssetUpdate):
     """전달된 필드만 변경하는 PATCH endpoint다."""
     result = assets.update_asset(asset_id, payload)
@@ -64,7 +64,7 @@ def update_asset(asset_id: UUID, payload: AssetUpdate):
     return result
 
 
-@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(authorize_uploader)])
 def delete_asset(asset_id: UUID):
     """물리 삭제 대신 deleted_at을 기록하고 대기/처리 중 작업을 취소한다."""
     if not assets.soft_delete_asset(asset_id):
@@ -118,7 +118,7 @@ def list_upload_history(asset_id: UUID):
     return {"items": assets.list_upload_audit(asset_id)}
 
 
-@router.post("/{asset_id}/relations", status_code=status.HTTP_201_CREATED)
+@router.post("/{asset_id}/relations", status_code=status.HTTP_201_CREATED, dependencies=[Depends(authorize_uploader)])
 def create_relation(asset_id: UUID, payload: RelationCreate):
     """두 Asset 사이에 참조·대체·파생 등의 방향성 관계를 만든다."""
     if not assets.get_asset(asset_id) or not assets.get_asset(payload.target_asset_id):
@@ -135,7 +135,10 @@ def list_relations(asset_id: UUID):
     return {"items": assets.list_relations(asset_id)}
 
 
-@router.delete("/{asset_id}/relations/{target_asset_id}/{relation_type}", status_code=204)
+@router.delete(
+    "/{asset_id}/relations/{target_asset_id}/{relation_type}", status_code=204,
+    dependencies=[Depends(authorize_uploader)],
+)
 def delete_relation(asset_id: UUID, target_asset_id: UUID, relation_type: str):
     """source/target/type이 모두 일치하는 관계 하나를 삭제한다."""
     if not assets.delete_relation(asset_id, target_asset_id, relation_type):

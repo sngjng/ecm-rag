@@ -15,9 +15,11 @@ from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from service.config import get_settings
 from service.dependencies import authorize_admin
 from service.embedding import embed
-from service.repositories import admin as admin_repository
+from service.repositories import access_roles, admin as admin_repository
 from service.repositories import assets, jobs
-from service.schemas import AdminChunkCreate, AdminChunkUpdate, AssetCreate, AssetType, AssetUpdate
+from service.schemas import (
+    AccessRoleUpsert, AdminChunkCreate, AdminChunkUpdate, AssetCreate, AssetType, AssetUpdate,
+)
 
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(authorize_admin)])
@@ -190,3 +192,45 @@ def retry_admin_job(job_id: UUID):
     if not result:
         raise HTTPException(409, "실패 또는 취소 상태의 작업만 재시도할 수 있습니다")
     return result
+
+
+@router.get("/access-roles")
+def list_access_roles(
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """관리 화면에서 명시적으로 등록된 사원별 권한을 조회한다."""
+    return access_roles.list_roles(query=q, limit=limit, offset=offset)
+
+
+@router.put("/access-roles/{employee_id}")
+def save_access_role(
+    employee_id: str,
+    payload: AccessRoleUpsert,
+    current_user: dict = Depends(authorize_admin),
+):
+    """사번별 단일 권한을 등록하거나 변경하고 기존 세션을 폐기한다."""
+    normalized_id = employee_id.strip()
+    if not normalized_id or len(normalized_id) > 50:
+        raise HTTPException(422, "사번은 1~50자로 입력해 주세요")
+    try:
+        return access_roles.upsert_role(
+            normalized_id,
+            payload.model_dump(),
+            str(current_user["employee_id"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.delete("/access-roles/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_access_role(employee_id: str):
+    """명시적 권한을 삭제한다. 해당 사원은 다음 로그인부터 업로더 권한이 된다."""
+    try:
+        deleted = access_roles.delete_role(employee_id.strip())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "등록된 사원 권한을 찾을 수 없습니다")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

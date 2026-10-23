@@ -6,10 +6,11 @@
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from service.config import get_settings
+from service.dependencies import authorize, authorize_admin, authorize_uploader
 from service.routes import admin, assets, auth, chat, external, ingestion, search, system
 
 
@@ -35,20 +36,38 @@ app.include_router(external.router, prefix=settings.server.api_prefix)
 app.mount("/assets", StaticFiles(directory=settings.paths.web_root / "assets"), name="web-assets")
 
 
+def _guarded_page(request: Request, filename: str, guard) -> FileResponse | RedirectResponse:
+    """HTML 직접 주소 접근에도 API와 동일한 역할 검사를 적용한다."""
+    try:
+        guard(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse(url="/login", status_code=303)
+        # 권한이 부족한 인증 사용자는 본인이 사용할 수 있는 조회 화면으로 보낸다.
+        return RedirectResponse(url="/search.html", status_code=303)
+    return FileResponse(settings.paths.web_root / filename, media_type="text/html")
+
+
 @app.get("/", include_in_schema=False)
-def index():
+def index(request: Request):
     """인증 비활성 기간의 기본 화면인 간편 업로드 화면을 반환한다.
 
     web_root는 설정 로더가 프로젝트 루트 기준 절대 경로로 정규화하므로 실행 디렉터리에
     영향을 받지 않는다.
     """
+    try:
+        authorize_uploader(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse(url="/login", status_code=303)
+        return RedirectResponse(url="/search.html", status_code=303)
     return FileResponse(settings.paths.web_root / "spl_upload.html", media_type="text/html")
 
 
 @app.get("/upload.html", include_in_schema=False)
-def detailed_upload_page():
+def detailed_upload_page(request: Request):
     """업무분류와 버전 정보를 포함하는 상세 업로드 화면을 반환한다."""
-    return FileResponse(settings.paths.web_root / "upload.html", media_type="text/html")
+    return _guarded_page(request, "upload.html", authorize_uploader)
 
 
 @app.get("/login", include_in_schema=False)
@@ -60,18 +79,18 @@ def login_page():
 
 
 @app.get("/spl_upload.html", include_in_schema=False)
-def simplified_upload_page():
+def simplified_upload_page(request: Request):
     """기본정보와 원본파일만 받는 간편 업로드 화면을 반환한다."""
-    return FileResponse(settings.paths.web_root / "spl_upload.html", media_type="text/html")
+    return _guarded_page(request, "spl_upload.html", authorize_uploader)
 
 
 @app.get("/search.html", include_in_schema=False)
-def search_page():
+def search_page(request: Request):
     """인증 사용자가 문서자산을 자연어로 조회하는 화면을 반환한다."""
-    return FileResponse(settings.paths.web_root / "search.html", media_type="text/html")
+    return _guarded_page(request, "search.html", authorize)
 
 
 @app.get("/admin.html", include_in_schema=False)
-def admin_page():
+def admin_page(request: Request):
     """PostgreSQL 자산과 pgvector 청크를 관리하는 내부 운영 화면을 반환한다."""
-    return FileResponse(settings.paths.web_root / "admin.html", media_type="text/html")
+    return _guarded_page(request, "admin.html", authorize_admin)

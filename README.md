@@ -96,17 +96,21 @@ psql -d ragdb -f artifacts/sql/001_pgvector.rendered.sql
 
 일반 설정은 YAML에서, DB 비밀번호와 외부 모델 주소 등 서버별 값은 환경 변수에서 관리합니다.
 
-현재는 사내 로그인 구현 전 임시 운영 모드가 기본입니다. `RAG_AUTH_ENABLED=false`이면
+사내 EAI 로그인은 `service/login.py`에 JPype 방식으로 구현되어 있습니다. 다만 사내망과
+Java 라이브러리가 없는 환경에서는 검증할 수 없으므로 기본값은 계속
+`RAG_AUTH_ENABLED=false`입니다. 이 경우
 첫 화면 `/`에서 `spl_upload.html`을 바로 표시하고 세션 없이 업로드·검색을 사용할 수
 있습니다. 업로드 감사 이력에는 `temporary / 임시 사용자 / IDC본부`가 기록됩니다.
-`service/login.py` 인증 연동을 완료한 뒤 `.env`에서 `RAG_AUTH_ENABLED=true`로 변경하면 기존 로그인·
-HttpOnly 세션 검증이 다시 적용됩니다. 임시 모드에서는 8300 포트를 승인된 사내 대역에만
+사내 테스트 환경에서 Java 경로를 설정하고 `.env`의 `RAG_AUTH_ENABLED=true`로 변경하면
+로그인·HttpOnly 세션 검증이 적용됩니다. 임시 모드에서는 8300 포트를 승인된 사내 대역에만
 노출해야 합니다.
 
 ```bash
 export RAG_PROFILE=rockylinux9
 export RAG_DB_DSN='postgresql://raguser:비밀번호@127.0.0.1:5432/ragdb'
 export RAG_AUTH_ENABLED=false
+export RAG_AUTH_JVM_PATH='/Product/jdk/open/jdk-21.0.11+10/lib/server/libjvm.so'
+export RAG_AUTH_JAVA_DIR='/Appl/chatllm/java'
 export RAG_AUTH_COMMAND='/srv/ecm-rag/bin/company-auth-wrapper'
 export RAG_RERANK_MODEL_PATH='/srv/models/bge-reranker-v2-m3'
 export RAG_DOCLING_ARTIFACTS='/srv/models/docling'
@@ -210,9 +214,11 @@ DB에는 `sql/002_session_auth_audit.sql`과
 입력하지 않습니다. 자산 삭제는 `deleted_at`만 기록하므로 Version과 청크의 embedding은
 DB에 보존되고 일반 검색에서만 제외됩니다. 청크 물리 삭제는 해당 행의 embedding과 연결된
 오류 이벤트·스택 프레임·코드 심볼도 함께 삭제합니다.
-인증을 활성화하면 사내 로그인 결과의 `roles`에 `admin`이 포함된 사용자만 관리자 API를
-사용할 수 있습니다. 임시 인증 비활성 모드에서는 별도 권한 검사가 없으므로 8300/TCP를
-관리 대상 사내 대역으로 반드시 제한해야 합니다.
+권한은 PostgreSQL의 `user_access_roles`에서 관리합니다. 뷰어는 조회 화면, 업로더는
+관리자 화면을 제외한 기능, 관리자는 모든 화면과 권한 관리를 사용할 수 있습니다.
+미등록 사원은 업로더 권한이 적용되며 권한 변경 시 기존 세션은 즉시 폐기됩니다. 최초
+관리자는 `.env`의 `RAG_AUTH_ADMIN_EMPLOYEE_IDS`에 사번을 쉼표로 구분해 지정합니다.
+인증 비활성 임시 사용자는 업로더 권한으로 동작하며 관리자 화면/API에는 접근할 수 없습니다.
 
 원본과 변환 산출물은 PostgreSQL 데이터 디렉터리와 별도로 저장됩니다.
 
@@ -335,11 +341,12 @@ ECM_RAG_PASSWORD=test .venv/bin/python scripts/query_uploaded_documents.py \
   "의료비 선택적복리후생" --asset-type document --limit 3
 ```
 
-## 향후 `login.py` 로그인 계약
+## `login.py` 사내 EAI 로그인
 
-FastAPI의 `POST /api/v1/auth/login` endpoint는 이미 준비되어 있습니다. 향후
-`service/login.py`의 `authenticate_employee()`만 구현하면 기존 세션 발급, 쿠키 검증과
-감사 이력 로직을 그대로 사용할 수 있습니다. 구현·활성화 절차는
+FastAPI의 `POST /api/v1/auth/login`은 `service/login.py`에서 JPype로 사내 EAI Java VO를
+호출합니다. 정상 응답의 `emp_no`, `user_id`, `user_name`, `dept_name`, `up_dept_name`을
+PostgreSQL 세션에 snapshot으로 저장하고 업로드 감사 이력에는 사번·성명·부서를 사용합니다.
+설정·migration·활성화 절차는
 [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md)를 참고하세요. 기존 Java wrapper가 필요한
 환경은 선택적으로 [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md)를 사용할 수 있습니다.
 

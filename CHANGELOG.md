@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- 접근 권한을 뷰어(조회 전용)·업로더(관리자 제외)·관리자(전체)로 표준화하고 HTML 직접
+  접근과 FastAPI endpoint 모두에 동일한 서버 권한 검사를 적용
+- `user_access_roles` migration과 관리자 화면의 사용자 권한 등록·수정·삭제 탭 추가;
+  권한 변경 시 기존 세션 폐기 및 미등록 사원의 업로더 권한 기본 적용
+- 뷰어·업로더·관리자 사용자 표시를 각각 팝콘·개미·건틀릿 아이콘으로 구분하고 역할별
+  로그인 후 이동 화면과 메뉴 노출을 조정
+- 제공된 JPype/Java VO 로그인 규격을 `service/login.py`에 구현하고 JVM·classpath·EAI
+  식별자를 환경변수로 분리; 동시 로그인 JVM 초기화 보호와 비밀번호 비로그 처리 적용
+- 실제 EAI 정상 응답의 `emp_no`, `user_id`, `user_name`, `dept_name`, `up_dept_name`을
+  세션에 보존하는 `004_eai_login_identity.sql` migration과 고정 fixture 회귀 테스트 추가
+- 실제 인증 사용자를 업로드·검색 화면에
+  `성명 (사번) / 부서 / 상위부서 / 권한 아이콘` 형식으로 표시
 - 무인증 `/api/v1/external/answer`의 정상 질문·스택트레이스·입력 오류·용량 제한을
   실제 HTTP로 검사하는 표준 라이브러리 기반 12개 케이스 테스트 스크립트 추가
 - JSON `include_chunks` 파라미터로 LLM 답변만 반환하거나 검색 근거 청크까지 포함하도록

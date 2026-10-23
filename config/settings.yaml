@@ -142,6 +142,17 @@ security:
     # 기존 Java wrapper 연동이 필요한 환경은 provider를 java_command로 바꿀 수 있다.
     provider: python_module
     java_command: "${RAG_AUTH_COMMAND:-}"
+    # JPype 사내 EAI 로그인. 경로는 서버별 .env에서 주입하고 Java 계약 식별자는
+    # 환경 차이가 있을 때만 override한다.
+    jvm_path: "${RAG_AUTH_JVM_PATH:-}"
+    java_base_dir: "${RAG_AUTH_JAVA_DIR:-}"
+    java_classpath: "${RAG_AUTH_CLASSPATH:-}"
+    outbound_process_class: "${RAG_AUTH_OUTBOUND_CLASS:-cis.internal.process.outbound.OutboundProcess}"
+    encrypt_util_class: "${RAG_AUTH_ENCRYPT_CLASS:-cis.internal.util.EncryptUtil}"
+    request_vo_class: "${RAG_AUTH_REQUEST_VO_CLASS:-ZZUL0001VO}"
+    response_vo_class: "${RAG_AUTH_RESPONSE_VO_CLASS:-ZZUL0002VO}"
+    interface_id: "${RAG_AUTH_INTERFACE_ID:-IR_HI-FMSCLIENT_0001}"
+    system_id: "${RAG_AUTH_SYSTEM_ID:-000164}"
     timeout_seconds: 15
     session_hours: 8
     cookie_name: ecm_rag_session
@@ -151,3 +162,5 @@ security:
     temporary_employee_id: temporary
     temporary_employee_name: 임시 사용자
     temporary_department: IDC본부
+    # 최초 권한 등록용 관리자 사번(쉼표 구분). 환경별 .env에서만 주입한다.
+    bootstrap_admin_employee_ids: "${RAG_AUTH_ADMIN_EMPLOYEE_IDS:-}"

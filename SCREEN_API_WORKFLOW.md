@@ -94,9 +94,16 @@ Mermaid 원문은 Markdown 안에서 직접 수정할 수 있습니다.
 ### 3.1 사내 로그인과 세션
 
 인증 활성화 후 로그인 화면은 사번과 비밀번호를 `POST /api/v1/auth/login`에 전달합니다.
-endpoint는 `service/login.py`의 구현 함수를 호출합니다. 인증 성공 시 반환된
-사번·성명·부서·이메일·역할을 PostgreSQL 세션에 snapshot으로 저장하고 브라우저에는
-무작위 HttpOnly 쿠키만 발급합니다. 비밀번호와 원문 세션 토큰은 DB에 저장하지 않습니다.
+endpoint는 `service/login.py`에서 JPype로 사내 EAI Java VO를 호출합니다. 인증 성공 시
+`emp_no`, `user_id`, 성명, 부서, 상위부서와 역할을 PostgreSQL 세션에 snapshot으로
+저장하고 브라우저에는 무작위 HttpOnly 쿠키만 발급합니다. 비밀번호와 원문 세션 토큰은
+DB에 저장하지 않습니다.
+
+실제 인증 사용자는 업로드·검색 화면 우측 상단에
+`성명 (사번) / 부서 / 상위부서 / 권한 아이콘` 형식으로 표시합니다. 뷰어는 팝콘,
+업로더는 개미, 관리자는 건틀릿 아이콘으로 구분하며 tooltip과 접근성 레이블에는 실제
+권한명을 제공합니다. 비어 있는 조직 항목은 생략하며, 임시 인증 비활성 모드에서는
+사용자 영역을 계속 숨깁니다.
 
 모든 보호 API는 `service.dependencies.authorize()`에서 세션 만료·폐기 여부를 확인합니다.
 업로드 완료 시 `upload_audit`에 사원정보, 신규/버전등록 구분, 접속 IP와 User-Agent를
@@ -269,9 +276,8 @@ Cookie: ecm_rag_session={HttpOnly session}
 ### 5.1 관리자 화면의 RDB·pgvector 관리
 
 `/admin.html`의 **데이터 관리** 화면은 일반 자산 API와 별도의 `/api/v1/admin`
-router를 사용합니다. 인증이
-활성화된 환경에서는 세션의 `roles`에 `admin`이 있어야 하며, 임시 인증 모드에서는
-운영망 ACL로 접근 PC를 제한해야 합니다.
+router를 사용합니다. 세션의 `roles`에 `admin`이 있어야 하며, 임시 인증 모드의
+공통 사용자는 `uploader`이므로 관리자 화면과 API에 접근할 수 없습니다.
 
 | Method | Endpoint | 기능 | 삭제/갱신 규칙 |
 |---|---|---|---|
@@ -283,6 +289,8 @@ router를 사용합니다. 인증이
 | GET/POST | `/api/v1/admin/chunks` | 청크 조회/생성 | 본문으로 vector 자동 생성 |
 | PATCH/DELETE | `/api/v1/admin/chunks/{id}` | 청크 수정/물리 삭제 | 본문 수정 시 vector 재생성, 삭제 시 오류·심볼 cascade |
 | GET | `/api/v1/admin/jobs` | 처리 작업·오류 조회 | 읽기 전용 |
+| GET | `/api/v1/admin/access-roles` | 명시적으로 등록된 사원 권한 조회 | 미등록 사원은 업로더 권한 |
+| PUT/DELETE | `/api/v1/admin/access-roles/{employee_id}` | 권한 등록·변경·삭제 | 대상 사원의 기존 세션 폐기 |
 | POST | `/api/v1/admin/jobs/{id}/retry` | 실패/취소 작업 재시도 | attempts를 초기화하고 queued 전환 |
 
 raw vector 배열은 크고 사람이 안전하게 수정하기 어렵기 때문에 화면과 응답에서 제외합니다.
@@ -394,7 +402,7 @@ JSON 요청의 `include_chunks`는 응답에 검색 근거를 포함할지 결�
 | 관련 문서 없음 | `200`, `generation_status=out_of_scope` | 지원 범위 안내, LLM 미호출 |
 | LLM 장애 | `200`, `generation_status=unavailable` | 검색 결과·원문 확인, 모델 서버 점검 |
 | 디컴파일 근거 포함 | `200`, `notices` 포함 | line보다 package/class/method 우선 확인 |
-| 관리자 권한 없음 | `403` | 사내 인증 응답의 `roles`에 `admin` 포함 여부 확인 |
+| 관리자 권한 없음 | `403` | `user_access_roles` 또는 부트스트랩 관리자 사번 확인 |
 | 관리자 청크 임베딩 실패 | `502` | 임베딩 URL·모델·응답 차원 확인, 기존 청크는 유지 |
 
 ## 9. 코드 리뷰 체크리스트

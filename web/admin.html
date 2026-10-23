@@ -388,6 +388,24 @@
         background: var(--blue-soft);
       }
 
+      .role-mark {
+        display: inline-grid;
+        width: 34px;
+        height: 34px;
+        margin-right: 8px;
+        place-items: center;
+        border-radius: 9px;
+        background: var(--blue-soft);
+        font-size: 18px;
+        vertical-align: middle;
+      }
+
+      .role-mark img {
+        width: 29px;
+        height: 29px;
+        object-fit: contain;
+      }
+
       .empty {
         padding: 45px 20px;
         color: var(--muted);
@@ -541,6 +559,7 @@
         <button class="tab" type="button" role="tab" data-panel="assets" aria-selected="true">문서자산 RDB</button>
         <button class="tab" type="button" role="tab" data-panel="chunks" aria-selected="false">검색 청크 · pgvector</button>
         <button class="tab" type="button" role="tab" data-panel="jobs" aria-selected="false">처리 작업</button>
+        <button class="tab" type="button" role="tab" data-panel="roles" aria-selected="false">사용자 권한</button>
       </div>
 
       <section id="panel-assets" class="panel">
@@ -618,6 +637,28 @@
         </div>
         <div id="job-pagination" class="pagination"></div>
       </section>
+
+      <section id="panel-roles" class="panel" hidden>
+        <div class="section-head">
+          <div>
+            <h2>사용자 권한</h2>
+            <p>미등록 사원은 로그인 시 업로더 권한이 적용됩니다.</p>
+          </div>
+          <div class="toolbar">
+            <input id="role-query" class="search-input" type="search" placeholder="사번, 이름 또는 부서" />
+            <button id="role-search" class="button" type="button">조회</button>
+            <button id="role-add" class="button button--primary" type="button">권한 등록</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>사번 / 이름</th><th>소속</th><th>권한</th><th>최종 변경자</th><th>수정일</th><th>관리</th></tr></thead>
+            <tbody id="role-rows"></tbody>
+          </table>
+          <div id="role-empty" class="empty" hidden>명시적으로 등록된 권한이 없습니다.</div>
+        </div>
+        <div id="role-pagination" class="pagination"></div>
+      </section>
     </main>
 
     <dialog id="asset-dialog">
@@ -659,12 +700,42 @@
       </form>
     </dialog>
 
+    <dialog id="role-dialog">
+      <form id="role-form">
+        <div class="dialog-head">
+          <h2 id="role-dialog-title">권한 등록</h2>
+          <p>사번을 기준으로 한 가지 접근 권한을 부여합니다.</p>
+        </div>
+        <div class="dialog-body">
+          <div class="field"><label for="form-role-employee-id">사번 *</label><input id="form-role-employee-id" maxlength="50" required /></div>
+          <div class="field"><label for="form-role-name">이름</label><input id="form-role-name" maxlength="100" /></div>
+          <div class="field"><label for="form-role-department">부서</label><input id="form-role-department" maxlength="200" /></div>
+          <div class="field"><label for="form-role-upper-department">상위 부서</label><input id="form-role-upper-department" maxlength="200" /></div>
+          <div class="field field--wide">
+            <label for="form-role">권한 *</label>
+            <select id="form-role" required>
+              <option value="viewer">뷰어 — 조회 화면만 접근</option>
+              <option value="uploader">업로더 — 관리자 화면을 제외한 모든 화면</option>
+              <option value="admin">관리자 — 모든 화면과 권한 관리</option>
+            </select>
+            <span class="field__hint">변경 즉시 해당 사원의 기존 로그인 세션이 종료됩니다.</span>
+          </div>
+        </div>
+        <div class="dialog-actions"><button class="button" type="button" data-close="role-dialog">취소</button><button class="button button--primary" type="submit">저장</button></div>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" hidden></div>
 
     <script>
       const API = "/api/v1/admin";
       const PAGE_SIZE = 50;
-      const state = { assets: [], chunks: [], versions: [], assetOffset: 0, chunkOffset: 0, jobOffset: 0, editingAsset: null, editingChunk: null };
+      const state = { assets: [], chunks: [], versions: [], roles: [], assetOffset: 0, chunkOffset: 0, jobOffset: 0, roleOffset: 0, editingAsset: null, editingChunk: null, editingRole: null };
+      const rolePresentation = {
+        viewer: { label: "뷰어", icon: '<img src="/assets/role-viewer-popcorn.svg?v=20261023-2" alt="" />', description: "조회 전용" },
+        uploader: { label: "업로더", icon: '<img src="/assets/role-uploader-ant.svg?v=20261023-2" alt="" />', description: "등록·조회" },
+        admin: { label: "관리자", icon: '<img src="/assets/infinity-gauntlet.svg?v=20261023-2" alt="" />', description: "전체 권한" },
+      };
       const $ = (id) => document.getElementById(id);
 
       function escapeHtml(value) {
@@ -810,6 +881,25 @@
         });
       }
 
+      async function loadRoles(offset = 0) {
+        state.roleOffset = offset;
+        const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+        if ($("role-query").value.trim()) params.set("q", $("role-query").value.trim());
+        const data = await api(`/access-roles?${params}`);
+        state.roles = data.items;
+        $("role-empty").hidden = data.items.length > 0;
+        $("role-rows").innerHTML = data.items.map((item) => {
+          const role = rolePresentation[item.role] || rolePresentation.uploader;
+          return `<tr><td><div class="cell-title">${escapeHtml(item.employee_name || "-")}</div><div class="mono">${escapeHtml(item.employee_id)}</div></td><td>${escapeHtml(item.department || "-")}<br /><span>${escapeHtml(item.upper_department || "-")}</span></td><td><span class="role-mark" title="${role.label} 권한">${role.icon}</span><strong>${role.label}</strong><br /><span>${role.description}</span></td><td class="mono">${escapeHtml(item.updated_by)}</td><td>${formatDate(item.updated_at)}</td><td><div class="actions"><button class="button button--small" data-edit-role="${escapeHtml(item.employee_id)}">수정</button><button class="button button--small button--danger" data-delete-role="${escapeHtml(item.employee_id)}">삭제</button></div></td></tr>`;
+        }).join("");
+        renderPagination("role-pagination", data.total, offset, loadRoles);
+        document.querySelectorAll("[data-edit-role]").forEach((button) => button.onclick = () => openRoleDialog(state.roles.find((item) => item.employee_id === button.dataset.editRole)));
+        document.querySelectorAll("[data-delete-role]").forEach((button) => button.onclick = async () => {
+          if (!confirm("이 권한 등록을 삭제하시겠습니까? 해당 사원은 다음 로그인부터 업로더 권한이 됩니다.")) return;
+          try { await api(`/access-roles/${encodeURIComponent(button.dataset.deleteRole)}`, { method: "DELETE" }); notify("권한 등록을 삭제했습니다."); await loadRoles(state.roleOffset); } catch (error) { notify(error.message, "error"); }
+        });
+      }
+
       function openAssetDialog(item = null) {
         state.editingAsset = item;
         $("asset-dialog-title").textContent = item ? "자산 수정" : "자산 추가";
@@ -845,29 +935,45 @@
         $("chunk-dialog").showModal();
       }
 
+      function openRoleDialog(item = null) {
+        state.editingRole = item;
+        $("role-dialog-title").textContent = item ? "권한 수정" : "권한 등록";
+        $("form-role-employee-id").disabled = Boolean(item);
+        $("form-role-employee-id").value = item?.employee_id || "";
+        $("form-role-name").value = item?.employee_name || "";
+        $("form-role-department").value = item?.department || "";
+        $("form-role-upper-department").value = item?.upper_department || "";
+        $("form-role").value = item?.role || "uploader";
+        $("role-dialog").showModal();
+      }
+
       async function refreshCurrent() {
         await loadStats();
         const selected = document.querySelector('.tab[aria-selected="true"]').dataset.panel;
         if (selected === "assets") await loadAssets(state.assetOffset);
         if (selected === "chunks") await loadChunks(state.chunkOffset);
         if (selected === "jobs") await loadJobs(state.jobOffset);
+        if (selected === "roles") await loadRoles(state.roleOffset);
       }
 
       document.querySelectorAll(".tab").forEach((tab) => tab.onclick = async () => {
         document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
         document.querySelectorAll(".panel").forEach((panel) => { panel.hidden = panel.id !== `panel-${tab.dataset.panel}`; });
-        try { if (tab.dataset.panel === "chunks") await loadChunks(); if (tab.dataset.panel === "jobs") await loadJobs(); } catch (error) { notify(error.message, "error"); }
+        try { if (tab.dataset.panel === "chunks") await loadChunks(); if (tab.dataset.panel === "jobs") await loadJobs(); if (tab.dataset.panel === "roles") await loadRoles(); } catch (error) { notify(error.message, "error"); }
       });
 
       document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => $(button.dataset.close).close());
       $("asset-add").onclick = () => openAssetDialog();
       $("chunk-add").onclick = () => state.versions.length ? openChunkDialog() : notify("먼저 원본 업로드로 자산 버전을 생성해 주세요.", "error");
+      $("role-add").onclick = () => openRoleDialog();
       $("asset-search").onclick = () => loadAssets().catch((error) => notify(error.message, "error"));
       $("chunk-search").onclick = () => loadChunks().catch((error) => notify(error.message, "error"));
       $("job-search").onclick = () => loadJobs().catch((error) => notify(error.message, "error"));
+      $("role-search").onclick = () => loadRoles().catch((error) => notify(error.message, "error"));
       $("refresh-all").onclick = () => refreshCurrent().catch((error) => notify(error.message, "error"));
       $("asset-query").onkeydown = (event) => { if (event.key === "Enter") $("asset-search").click(); };
       $("chunk-query").onkeydown = (event) => { if (event.key === "Enter") $("chunk-search").click(); };
+      $("role-query").onkeydown = (event) => { if (event.key === "Enter") $("role-search").click(); };
 
       $("asset-form").onsubmit = async (event) => {
         event.preventDefault();
@@ -888,6 +994,16 @@
           if (state.editingChunk) delete payload.version_id;
           await api(path, { method: state.editingChunk ? "PATCH" : "POST", body: JSON.stringify(payload) });
           $("chunk-dialog").close(); notify("청크와 pgvector를 저장했습니다."); await refreshCurrent();
+        } catch (error) { notify(error.message, "error"); }
+      };
+
+      $("role-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const employeeId = $("form-role-employee-id").value.trim();
+          const payload = { role: $("form-role").value, employee_name: valueOrNull("form-role-name"), department: valueOrNull("form-role-department"), upper_department: valueOrNull("form-role-upper-department") };
+          await api(`/access-roles/${encodeURIComponent(employeeId)}`, { method: "PUT", body: JSON.stringify(payload) });
+          $("role-dialog").close(); notify("사용자 권한을 저장했습니다. 기존 세션은 종료됩니다."); await loadRoles();
         } catch (error) { notify(error.message, "error"); }
       };
 

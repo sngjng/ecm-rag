@@ -141,18 +141,52 @@
       }
 
       .user-chip__text {
-        display: grid;
+        display: flex;
+        align-items: center;
+        gap: 6px;
         line-height: 1.25;
       }
 
       .user-chip__name {
         font-size: 11px;
         font-weight: 800;
+        white-space: nowrap;
       }
 
-      .user-chip__department {
+      .user-role-separator {
         color: var(--muted);
-        font-size: 9px;
+        font-size: 11px;
+      }
+
+      .user-role-icon {
+        display: inline-grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        border-radius: 50%;
+        color: var(--primary);
+        background: var(--primary-soft);
+      }
+
+      .user-role-icon svg {
+        width: 13px;
+        height: 13px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
+      }
+
+      .user-role-icon > span {
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .user-role-icon > img {
+        width: 23px;
+        height: 23px;
+        object-fit: contain;
       }
 
       .logout-button {
@@ -1172,7 +1206,12 @@
             <span id="user-avatar" class="user-chip__avatar">사</span>
             <span class="user-chip__text">
               <span id="user-name" class="user-chip__name">사용자 확인 중</span>
-              <span id="user-department" class="user-chip__department">—</span>
+              <span class="user-role-separator" aria-hidden="true">/</span>
+              <span id="user-role" class="user-role-icon" aria-label="사용자 권한">
+                <img data-role-icon="uploader" src="/assets/role-uploader-ant.svg?v=20261023-2" alt="" />
+                <img data-role-icon="admin" src="/assets/infinity-gauntlet.svg?v=20261023-2" alt="" hidden />
+                <img data-role-icon="viewer" src="/assets/role-viewer-popcorn.svg?v=20261023-2" alt="" hidden />
+              </span>
             </span>
           </div>
           <button id="logout" class="logout-button" type="button" hidden>
@@ -1828,13 +1867,32 @@
         const roles = Array.isArray(user.roles)
           ? user.roles.map((role) => String(role).toLowerCase())
           : [];
+        const roleKey = roles.includes("admin")
+          ? "admin"
+          : roles.includes("uploader")
+            ? "uploader"
+            : "viewer";
+        const roleNames = {
+          admin: "관리자 권한 · 모든 화면 접근",
+          uploader: "업로더 권한 · 등록 및 조회",
+          viewer: "뷰어 권한 · 조회 전용",
+        };
         document.querySelectorAll("[data-admin-only]").forEach((element) => {
           element.hidden = !roles.includes("admin");
         });
+        const identityParts = [
+          `${user.employee_name} (${user.employee_id})`,
+          user.department,
+          user.upper_department,
+        ].filter((value) => String(value || "").trim());
         document.querySelector("#user-name").textContent =
-          `${user.employee_name} (${user.employee_id})`;
-        document.querySelector("#user-department").textContent =
-          user.department || "부서 정보 없음";
+          identityParts.join(" / ");
+        const roleElement = document.querySelector("#user-role");
+        roleElement.title = roleNames[roleKey];
+        roleElement.setAttribute("aria-label", roleNames[roleKey]);
+        roleElement.querySelectorAll("[data-role-icon]").forEach((icon) => {
+          icon.hidden = icon.dataset.roleIcon !== roleKey;
+        });
         document.querySelector("#user-avatar").textContent =
           user.employee_name.slice(0, 1);
         if (!user.temporary_access) {

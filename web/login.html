@@ -272,7 +272,14 @@
       const button = document.querySelector("#login-button");
       const buttonLabel = document.querySelector("#button-label");
       const errorBox = document.querySelector("#error");
-      const postLoginPath = "/spl_upload.html";
+      function postLoginPath(user) {
+        const roles = Array.isArray(user?.roles)
+          ? user.roles.map((role) => String(role).toLowerCase())
+          : [];
+        return roles.some((role) => ["uploader", "admin"].includes(role))
+          ? "/spl_upload.html"
+          : "/search.html";
+      }
 
       async function readResponse(response) {
         const type = response.headers.get("content-type") || "";
@@ -281,11 +288,9 @@
           : { detail: await response.text() };
       }
 
-      fetch("/api/v1/auth/me", { credentials: "same-origin" }).then(
-        (response) => {
-          if (response.ok) window.location.replace(postLoginPath);
-        },
-      );
+      fetch("/api/v1/auth/me", { credentials: "same-origin" }).then(async (response) => {
+        if (response.ok) window.location.replace(postLoginPath(await response.json()));
+      });
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -311,7 +316,7 @@
                 ? result.detail
                 : "로그인에 실패했습니다.",
             );
-          window.location.replace(postLoginPath);
+          window.location.replace(postLoginPath(result));
         } catch (error) {
           errorBox.textContent =
             error instanceof Error ? error.message : String(error);

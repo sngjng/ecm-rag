@@ -84,8 +84,10 @@ CREATE TABLE IF NOT EXISTS rag.auth_sessions (
   session_id uuid PRIMARY KEY,
   token_hash char(64) NOT NULL UNIQUE,
   employee_id text NOT NULL,
+  user_id text,
   employee_name text NOT NULL,
   department text,
+  upper_department text,
   email text,
   roles jsonb NOT NULL DEFAULT '[]'::jsonb,
   expires_at timestamptz NOT NULL,
@@ -99,6 +101,20 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_active
   ON rag.auth_sessions(token_hash, expires_at) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_employee
   ON rag.auth_sessions(employee_id, created_at DESC);
+
+-- 사내 EAI는 신원 인증만 담당하고 애플리케이션 접근 권한은 별도 관리한다.
+CREATE TABLE IF NOT EXISTS rag.user_access_roles (
+  employee_id text PRIMARY KEY,
+  employee_name text,
+  department text,
+  upper_department text,
+  role text NOT NULL CHECK (role IN ('viewer', 'uploader', 'admin')),
+  updated_by text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_user_access_roles_role
+  ON rag.user_access_roles(role, employee_id);
 
 -- display_content는 사용자/LLM 제시용, embedding_content는 metadata context가 포함된 검색용이다.
 CREATE TABLE IF NOT EXISTS rag.chunks (

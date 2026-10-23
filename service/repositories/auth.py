@@ -26,13 +26,16 @@ def create_session(
         )
         return conn.execute(
             """INSERT INTO auth_sessions
-               (session_id, token_hash, employee_id, employee_name, department, email,
-                roles, expires_at, client_ip, user_agent)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+               (session_id, token_hash, employee_id, user_id, employee_name,
+                department, upper_department, email, roles, expires_at, client_ip,
+                user_agent)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (
-                uuid4(), token_hash, identity.employee_id, identity.employee_name,
-                identity.department or None, identity.email or None,
-                Jsonb(identity.roles), expires_at, client_ip, user_agent,
+                uuid4(), token_hash, identity.employee_id,
+                identity.user_id or identity.employee_id, identity.employee_name,
+                identity.department or None, identity.upper_department or None,
+                identity.email or None, Jsonb(identity.roles), expires_at, client_ip,
+                user_agent,
             ),
         ).fetchone()
 
@@ -44,8 +47,8 @@ def get_active_session(token_hash: str) -> dict[str, Any] | None:
     """
     with connect() as conn:
         return conn.execute(
-            """SELECT session_id, employee_id, employee_name, department,
-                      email, roles, expires_at, last_seen_at
+            """SELECT session_id, employee_id, user_id, employee_name, department,
+                      upper_department, email, roles, expires_at, last_seen_at
                  FROM auth_sessions
                 WHERE token_hash=%s AND revoked_at IS NULL AND expires_at > now()""",
             (token_hash,),
