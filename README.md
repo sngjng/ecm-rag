@@ -87,6 +87,10 @@ BGE-M3 차원과 일치합니다. 다른 차원의 embedding 모델을 사용할
 `vector(N)`도 일치해야 합니다. YAML profile에서 차원을 변경한 뒤 설치 SQL을 렌더링할
 수 있습니다.
 
+Rocky Linux 9 폐쇄망 테스트 서버에서 PostgreSQL 17·pgvector를 rootless Podman으로
+구축할 때는 이미지/RPM 반입, bind mount, SELinux, migration, 자동기동과 백업 절차를 포함한
+[`PODMAN_POSTGRESQL_PGVECTOR_SETUP.md`](PODMAN_POSTGRESQL_PGVECTOR_SETUP.md)를 따릅니다.
+
 ```bash
 python scripts/render_pgvector_sql.py --output artifacts/sql/001_pgvector.rendered.sql
 psql -d ragdb -f artifacts/sql/001_pgvector.rendered.sql

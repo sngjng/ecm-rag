@@ -279,6 +279,10 @@ Docling와 EasyOCR 모델 weight는 wheel에 포함되지 않을 수 있습니�
 
 ## 8. PostgreSQL 17과 pgvector
 
+Rocky Linux 9 폐쇄망 테스트 환경에서 rootless Podman으로 기존 테스트 DB와 동일한
+`pgvector/pgvector:pg17`, `127.0.0.1:55432`, bind mount 구성을 만드는 전체 절차는
+[`PODMAN_POSTGRESQL_PGVECTOR_SETUP.md`](PODMAN_POSTGRESQL_PGVECTOR_SETUP.md)를 참고합니다.
+
 ### 8.1 준비 조건
 
 - PostgreSQL 17 서버/클라이언트
@@ -320,7 +324,7 @@ psql "$RAG_DB_DSN" -v ON_ERROR_STOP=1 \
 ```
 
 `bin/start.sh`는 증분 migration `002_session_auth_audit.sql`부터
-`005_user_access_roles.sql`까지 매번 안전하게 확인하지만, 신규 DB의
+`006_rename_general_role_to_viewer.sql`까지 매번 안전하게 확인하지만, 신규 DB의
 `001_pgvector.sql`은 자동 생성하지 않습니다.
 
 검증:
@@ -1168,4 +1172,5 @@ web/search.html 또는 내부 업무 시스템
 - [`JAVA_AUTH_INTEGRATION.md`](JAVA_AUTH_INTEGRATION.md): Java 인증 계약
 - [`LOGIN_INTEGRATION.md`](LOGIN_INTEGRATION.md): JPype `login.py` 설정·응답 매핑·시험 절차
 - [`LOCAL_PC_TEST_ENV_SETUP.md`](LOCAL_PC_TEST_ENV_SETUP.md): Windows/WSL 재현 절차
+- [`PODMAN_POSTGRESQL_PGVECTOR_SETUP.md`](PODMAN_POSTGRESQL_PGVECTOR_SETUP.md): Rocky Linux 9 폐쇄망 Podman DB 구축·백업·복구
 - [`WORKLOG_PGVECTOR.md`](WORKLOG_PGVECTOR.md): PostgreSQL/pgvector 전환 작업 기록

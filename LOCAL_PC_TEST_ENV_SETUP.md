@@ -266,6 +266,10 @@ python -c "import fastapi, psycopg, pgvector, yaml; print('service dependencies:
 
 ## 9. PostgreSQL 17 + pgvector 테스트 DB 생성
 
+Rocky Linux 9 폐쇄망 서버에서 Docker Desktop 대신 rootless Podman을 사용하는 경우에는
+[`PODMAN_POSTGRESQL_PGVECTOR_SETUP.md`](PODMAN_POSTGRESQL_PGVECTOR_SETUP.md)를 적용합니다.
+이 절의 Docker/WSL 절차와 Podman 절차를 같은 DB에 동시에 적용하지 않습니다.
+
 다음 두 방식 중 하나를 선택합니다. 애플리케이션 기능과 DB 스키마는 같으며 접속 포트와
 운영 방법만 다릅니다. 두 DB를 동시에 실행할 수도 있지만 테스트할 때는 `RAG_DB_DSN`이
 어느 DB를 가리키는지 반드시 확인합니다.

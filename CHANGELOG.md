@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Rocky Linux 9 폐쇄망 테스트 환경에서 현재와 동일한 PostgreSQL 17·pgvector를 rootless
+  Podman으로 구축할 수 있도록 RPM·이미지 반입, 데이터 영속화, SELinux, migration,
+  재부팅 자동기동, 백업·복구 및 장애 점검 가이드 추가
 - 접근 권한을 뷰어(조회 전용)·업로더(관리자 제외)·관리자(전체)로 표준화하고 HTML 직접
   접근과 FastAPI endpoint 모두에 동일한 서버 권한 검사를 적용
 - `user_access_roles` migration과 관리자 화면의 사용자 권한 등록·수정·삭제 탭 추가;
