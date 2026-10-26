@@ -1,31 +1,38 @@
-# Rocky Linux 9 폐쇄망 Podman PostgreSQL·pgvector 설치 가이드
+# Rocky Linux 9 폐쇄망 Podman PostgreSQL·pgvector 신규 설치 가이드
 
 ## 1. 목적과 기준 구성
 
-이 문서는 새로운 폐쇄망 Rocky Linux 9 테스트 서버에 기존 ECM-RAG 테스트 DB와 동일한
-PostgreSQL 17·pgvector 환경을 rootless Podman으로 구축하는 절차입니다. 애플리케이션과
-DB 컨테이너는 같은 서버에서 실행하는 구성을 기준으로 합니다.
+이 문서는 새로운 폐쇄망 Rocky Linux 9 테스트 서버에 빈 PostgreSQL 17·pgvector 환경을
+rootless Podman으로 신규 구축하는 절차입니다. 기존 Docker DB의 데이터, volume 또는 dump는
+이전하지 않습니다. 애플리케이션과 DB 컨테이너는 같은 서버에서 실행하는 구성을 기준으로
+합니다.
+
+이 작업은 Python·FastAPI 소스를 변경하지 않습니다. Podman DB는 `10.2.12.98:55432`,
+`ragdb`, `ragtest` 규격으로 만들고 애플리케이션은 `.env`의 `RAG_DB_DSN`으로 연결합니다.
+따라서 소스 수정 없이 환경 설정만으로 연결할 수 있습니다.
 
 | 항목 | 기준값 |
 |---|---|
 | OS | Rocky Linux 9 x86_64 |
-| 컨테이너 실행 계정 | `sngjng` 일반 계정 |
+| 컨테이너 실행 계정 | `gptoss` 일반 계정 |
 | 컨테이너 이미지 | `docker.io/pgvector/pgvector:pg17` |
 | 컨테이너 이름 | `ecm-rag-it-postgres` |
 | PostgreSQL 컨테이너 포트 | `5432` |
-| 호스트 접속 주소 | `127.0.0.1:55432` |
-| 테스트 DB·계정 | `ragdb` / `ragtest` |
-| 호스트 데이터 경로 | `/home/sngjng/ecm-rag-data/postgresql17` |
+| 호스트 접속 주소 | `10.2.12.98:55432` |
+| 데이터베이스 | `ragdb` |
+| DB 사용자 | `ragtest` |
+| DB 비밀번호 | `rag12#$` |
+| 호스트 데이터 경로 | `/LLMChatbot/pgdata/postgresql17` |
 | 필수 확장 | `vector`, `pg_trgm` |
 | 기본 embedding 차원 | `vector(1024)` |
 
-`127.0.0.1`에만 포트를 게시하므로 DB는 회사 네트워크의 다른 PC에 직접 노출되지 않습니다.
-외부 사용자는 FastAPI의 8300 포트로 접근하고, 동일 서버의 애플리케이션만 PostgreSQL에
-접속합니다. DB를 다른 서버에 설치하는 구성은 방화벽·`pg_hba.conf`·TLS 정책을 별도로
-설계해야 합니다.
+`10.2.12.98` 인터페이스에 DB 포트를 게시하므로 회사 네트워크에서 해당 주소로 접근할 수
+있습니다. 방화벽에서 55432 포트의 출발지 대역을 ECM-RAG 서버와 허용된 관리 PC로 제한해야
+합니다. 외부 사용자는 PostgreSQL에 직접 접속하지 않고 FastAPI의 8300 포트를 사용합니다.
 
-아래의 `ragtest_password`는 기존 테스트 환경과 맞춘 예시입니다. 신규 환경에서는 별도
-비밀번호로 변경하고 프로젝트 `.env`의 DSN에도 같은 값을 사용합니다.
+비밀번호의 `#`, `$`는 DSN 예약문자와 shell 확장 문제를 피하기 위해 `RAG_DB_DSN`에서
+각각 `%23`, `%24`로 URL encoding합니다. Podman의 `postgres.env`에는 원문 비밀번호를
+그대로 기록합니다.
 
 ## 2. 사전 확인
 
@@ -41,9 +48,9 @@ id
 다음 조건을 충족해야 합니다.
 
 - Rocky Linux 9 계열이며 준비 PC와 대상 PC의 architecture가 동일함
-- DB 데이터와 백업을 저장할 충분한 `/home` 공간
+- 신규 DB 데이터를 저장할 충분한 `/LLMChatbot` filesystem 공간
 - 최초 RPM 설치, subuid/subgid 설정 및 linger 활성화에 사용할 관리자 지원
-- 이후 컨테이너는 `sngjng` 일반 계정으로 실행
+- 이후 컨테이너는 `gptoss` 일반 계정으로 실행
 
 ## 3. 폐쇄망 반입 자료 준비
 
@@ -69,45 +76,23 @@ repository가 있다면 별도 RPM 묶음 대신 해당 repository를 우선 사
 
 ### 3.2 PostgreSQL·pgvector 이미지
 
-`pg17` 태그는 향후 다른 빌드를 가리킬 수 있으므로 **현재 검증이 끝난 테스트 환경의
-이미지를 export하는 방법을 우선**합니다. 기존 환경이 Docker이면 다음과 같이 저장합니다.
+인터넷이 가능한 Rocky Linux 9 준비 서버에 Podman을 설치하고 PostgreSQL 17·pgvector
+이미지를 내려받습니다. Docker는 사용하지 않습니다.
 
 ```bash
 mkdir -p "$HOME/ecm-rag-offline/images"
 
-docker image inspect pgvector/pgvector:pg17 \
-  --format 'image_id={{.Id}} digests={{json .RepoDigests}}'
-docker save \
-  --output "$HOME/ecm-rag-offline/images/pgvector-pg17.tar" \
-  pgvector/pgvector:pg17
-```
-
-기존 검증 환경도 Podman이면 다음 명령을 사용합니다.
-
-```bash
-mkdir -p "$HOME/ecm-rag-offline/images"
-
-podman image inspect docker.io/pgvector/pgvector:pg17 \
-  --format 'image_id={{.Id}} digests={{json .RepoDigests}}'
-
-podman save --format docker-archive \
-  --output "$HOME/ecm-rag-offline/images/pgvector-pg17.tar" \
-  docker.io/pgvector/pgvector:pg17
-```
-
-기존 검증 이미지를 가져올 수 없을 때만 인터넷 연결 서버에서 새로 pull합니다. 이 경우
-새 이미지로 회귀 테스트가 필요합니다.
-
-```bash
 podman pull docker.io/pgvector/pgvector:pg17
 podman image inspect docker.io/pgvector/pgvector:pg17 \
   --format 'image_id={{.Id}} digests={{json .RepoDigests}}'
+
 podman save --format docker-archive \
   --output "$HOME/ecm-rag-offline/images/pgvector-pg17.tar" \
   docker.io/pgvector/pgvector:pg17
 ```
 
-어느 방법을 사용하든 archive의 체크섬을 생성합니다.
+`pg17` 태그는 향후 다른 빌드를 가리킬 수 있으므로 출력된 image ID와 digest를 구축 기록에
+남기고 archive의 체크섬을 생성합니다.
 
 ```bash
 cd "$HOME/ecm-rag-offline/images"
@@ -146,22 +131,22 @@ repository 기준으로 누락 RPM을 다시 수집합니다.
 
 ### 4.1 rootless 사용자 매핑
 
-관리자가 `sngjng`의 subordinate UID/GID 범위를 확인합니다.
+관리자가 `gptoss`의 subordinate UID/GID 범위를 확인합니다.
 
 ```bash
-grep '^sngjng:' /etc/subuid
-grep '^sngjng:' /etc/subgid
+grep '^gptoss:' /etc/subuid
+grep '^gptoss:' /etc/subgid
 ```
 
 출력이 없다면 다른 사용자 범위와 겹치지 않는 값을 관리자가 배정합니다. 아래 범위는
 예시이며 기존 서버 정책을 우선합니다.
 
 ```bash
-sudo usermod --add-subuids 100000-165535 sngjng
-sudo usermod --add-subgids 100000-165535 sngjng
+sudo usermod --add-subuids 100000-165535 gptoss
+sudo usermod --add-subgids 100000-165535 gptoss
 ```
 
-변경 후 `sngjng` 세션을 완전히 종료했다가 다시 로그인하고 확인합니다.
+변경 후 `gptoss` 세션을 완전히 종료했다가 다시 로그인하고 확인합니다.
 
 ```bash
 podman info --format '{{.Host.Security.Rootless}}'
@@ -171,7 +156,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 
 ## 5. 이미지 반입과 검증
 
-이 절부터는 별도 안내가 없는 한 `sngjng` 계정으로 실행합니다.
+이 절부터는 별도 안내가 없는 한 `gptoss` 계정으로 실행합니다.
 
 ```bash
 cd /반입경로/images
@@ -195,15 +180,17 @@ archive가 다른 이름으로 등록되었다면 `podman images`에서 확인�
 
 ## 6. 데이터 경로와 비밀 설정
 
-DB 데이터는 컨테이너 writable layer가 아닌 호스트 bind mount에 저장합니다. 따라서
-컨테이너를 다시 만들어도 같은 경로를 연결하면 데이터가 유지됩니다.
+호스트 데이터는 PostgreSQL의 테이블, pgvector 값, 인덱스와 트랜잭션 로그가 실제로
+저장되는 로컬 디스크 데이터입니다. 컨테이너 writable layer가 아닌 host bind mount에
+저장하므로 컨테이너를 다시 만들어도 같은 경로를 연결하면 DB가 유지됩니다. 업로드 원본,
+변환 산출물, API·worker 로그는 이 경로에 저장되지 않습니다.
 
 ```bash
-export ECM_RAG_PGDATA=/home/sngjng/ecm-rag-data/postgresql17
-export ECM_RAG_PG_ENV=/home/sngjng/.config/ecm-rag/postgres.env
+export ECM_RAG_PGDATA=/LLMChatbot/pgdata/postgresql17
+export ECM_RAG_PG_ENV=/home/gptoss/.config/ecm-rag/postgres.env
 
-install -d -m 700 "$ECM_RAG_PGDATA"
-install -d -m 700 /home/sngjng/.config/ecm-rag
+sudo install -d -o gptoss -g gptoss -m 700 "$ECM_RAG_PGDATA"
+install -d -m 700 /home/gptoss/.config/ecm-rag
 
 umask 077
 vi "$ECM_RAG_PG_ENV"
@@ -213,9 +200,12 @@ vi "$ECM_RAG_PG_ENV"
 
 ```dotenv
 POSTGRES_USER=ragtest
-POSTGRES_PASSWORD=ragtest_password
+POSTGRES_PASSWORD=rag12#$
 POSTGRES_DB=ragdb
 ```
+
+이 파일은 Podman의 `--env-file` 전용입니다. 비밀번호 원문에 특수문자가 있으므로 shell에서
+`source`하지 않습니다.
 
 ```bash
 chmod 600 "$ECM_RAG_PG_ENV"
@@ -250,14 +240,22 @@ podman ps -a --filter name=ecm-rag-it-postgres
 기존 컨테이너가 있다면 새로 생성하지 않습니다. 기존 데이터가 필요한 상태에서 컨테이너나
 데이터 디렉터리를 삭제하면 안 됩니다. 신규 서버에서 출력이 없을 때만 실행합니다.
 
+호스트가 요청받은 IP를 실제로 보유하는지 먼저 확인합니다.
+
+```bash
+ip -4 address show | grep -F '10.2.12.98'
+```
+
+출력이 없으면 컨테이너를 실행하지 말고 서버 IP를 네트워크 관리자에게 확인합니다.
+
 ```bash
 podman run -d \
   --name ecm-rag-it-postgres \
   --pull=never \
   --restart=unless-stopped \
-  -p 127.0.0.1:55432:5432 \
-  --env-file /home/sngjng/.config/ecm-rag/postgres.env \
-  -v /home/sngjng/ecm-rag-data/postgresql17:/var/lib/postgresql/data:Z \
+  -p 10.2.12.98:55432:5432 \
+  --env-file /home/gptoss/.config/ecm-rag/postgres.env \
+  -v /LLMChatbot/pgdata/postgresql17:/var/lib/postgresql/data:Z \
   --health-cmd='pg_isready -U ragtest -d ragdb' \
   --health-interval=2s \
   --health-timeout=3s \
@@ -280,12 +278,17 @@ health 상태가 `healthy`, mount 대상이 `/var/lib/postgresql/data`여야 합
 최초 초기화에만 사용되므로 기존 데이터 경로를 유지한 채 env 파일만 바꿔도 DB 비밀번호가
 자동 변경되지 않습니다.
 
-## 8. ECM-RAG 스키마와 마이그레이션
+55432 포트가 요청한 인터페이스에만 게시됐는지도 확인합니다.
 
-### 8.1 기본 `001_pgvector.sql`
+```bash
+ss -lnt | grep '10.2.12.98:55432'
+```
 
-신규 DB에는 프로젝트의 기본 스키마를 먼저 적용합니다. 이 파일이 embedding 차원
-`vector(1024)`와 `vector`, `pg_trgm` 확장을 생성합니다.
+## 8. 빈 DB에 ECM-RAG 스키마 생성
+
+이 절은 기존 DB 데이터를 옮기는 마이그레이션이 아닙니다. 새로 만든 빈 `ragdb`에 현재
+애플리케이션이 요구하는 테이블, 인덱스, `vector(1024)`, `vector`, `pg_trgm` 확장을 생성하는
+초기화 절차입니다. 기존 Docker DB, dump 또는 volume은 사용하지 않습니다.
 
 ```bash
 cd /mnt/appl/ecm-rag
@@ -300,61 +303,20 @@ podman exec ecm-rag-it-postgres \
   -f /tmp/001_pgvector.sql
 ```
 
-embedding 모델의 차원이 1024가 아니라면 원본 SQL을 직접 수정하지 말고
-`config/settings.yaml`의 `models.embedding.dimension`을 설정한 후 렌더링 파일을
-적용합니다.
-
-```bash
-source /mnt/appl/venv/venv_ecmrag/bin/activate
-python scripts/render_pgvector_sql.py \
-  --output artifacts/sql/001_pgvector.rendered.sql
-
-podman cp artifacts/sql/001_pgvector.rendered.sql \
-  ecm-rag-it-postgres:/tmp/001_pgvector.rendered.sql
-podman exec ecm-rag-it-postgres \
-  psql -v ON_ERROR_STOP=1 -U ragtest -d ragdb \
-  -f /tmp/001_pgvector.rendered.sql
-```
-
-1024차원 기본 모델을 사용할 때는 렌더링 과정이 필요하지 않습니다.
-
-### 8.2 증분 마이그레이션
-
-프로젝트 루트 `/mnt/appl/ecm-rag/.env`에 다음 DB 설정을 포함합니다.
+현재 애플리케이션과 같은 1024차원 embedding 구성이므로 SQL이나 Python 코드를 수정하지
+않습니다. 프로젝트 루트 `/mnt/appl/ecm-rag/.env`의 기존 DB 설정이 다음과 같은지만
+확인합니다.
 
 ```dotenv
 RAG_PROFILE=test
-RAG_DB_DSN=postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb
+RAG_DB_DSN=postgresql://ragtest:rag12%23%24@10.2.12.98:55432/ragdb
 ECM_RAG_PYTHON=/mnt/appl/venv/venv_ecmrag/bin/python
-ECM_RAG_USER=sngjng
+ECM_RAG_USER=gptoss
 ```
 
-비밀번호에 `@`, `:`, `/`, `#`, `%` 같은 문자가 있으면 DSN의 비밀번호를 URL encoding해야
-합니다. `.env`에는 실제 환경의 LLM, embedding, Java, CFR 경로도 함께 설정합니다.
-
-기본 스키마 적용 후 현재 프로젝트의 `002`부터 `006`까지를 확인합니다. 각 SQL은 반복
-실행 가능한 형태이며 `bin/start.sh`도 서비스 시작 전에 같은 검사를 수행합니다.
-
-```bash
-cd /mnt/appl/ecm-rag
-set -a
-source .env
-set +a
-
-"$ECM_RAG_PYTHON" -m scripts.apply_migrations
-```
-
-예상 출력:
-
-```text
-적용 완료: 002_session_auth_audit.sql
-적용 완료: 003_code_symbol_stack_lookup.sql
-적용 완료: 004_eai_login_identity.sql
-적용 완료: 005_user_access_roles.sql
-적용 완료: 006_rename_general_role_to_viewer.sql
-```
-
-`001_pgvector.sql`이 없는 DB에서는 마이그레이션 명령이 의도적으로 실패합니다.
+이미 같은 값이면 `.env`도 수정하지 않습니다. `bin/start.sh`는 현재 소스에 포함된 호환성
+DDL을 기동 전에 반복 안전하게 확인합니다. 이는 기존 데이터를 이전하는 작업이 아니며,
+별도의 수동 데이터 마이그레이션 명령은 실행하지 않습니다.
 
 ## 9. 설치 결과 검증
 
@@ -411,10 +373,10 @@ curl -fsS http://127.0.0.1:8300/health/ready
 로그인 전에도 재시작되게 하려면 관리자가 한 번만 linger를 활성화합니다.
 
 ```bash
-sudo loginctl enable-linger sngjng
+sudo loginctl enable-linger gptoss
 ```
 
-`sngjng` 계정에서 Podman restart unit의 존재 여부를 확인하고 활성화합니다.
+`gptoss` 계정에서 Podman restart unit의 존재 여부를 확인하고 활성화합니다.
 
 ```bash
 systemctl --user list-unit-files podman-restart.service
@@ -467,48 +429,9 @@ podman inspect ecm-rag-it-postgres \
 /mnt/appl/ecm-rag/artifacts/logs/worker.log
 ```
 
-## 12. 백업과 복구
+## 12. 장애 점검
 
-### 12.1 논리 백업
-
-```bash
-install -d -m 700 /home/sngjng/ecm-rag-backup
-export ECM_RAG_DB_BACKUP="/home/sngjng/ecm-rag-backup/ragdb-$(date +%Y%m%d-%H%M%S).dump"
-
-podman exec ecm-rag-it-postgres \
-  pg_dump -U ragtest -d ragdb --format=custom \
-  > "$ECM_RAG_DB_BACKUP"
-
-test -s "$ECM_RAG_DB_BACKUP"
-sha256sum "$ECM_RAG_DB_BACKUP" > "$ECM_RAG_DB_BACKUP.sha256"
-printf 'backup=%s\n' "$ECM_RAG_DB_BACKUP"
-```
-
-### 12.2 복구
-
-복구는 대상 DB를 변경하므로 API와 worker를 먼저 중지하고 백업 파일과 대상 DB를
-재확인합니다.
-
-```bash
-cd /mnt/appl/ecm-rag
-./bin/stop.sh
-
-sha256sum --check /복구경로/ragdb.dump.sha256
-
-podman exec -i ecm-rag-it-postgres \
-  pg_restore -U ragtest -d ragdb \
-  --clean --if-exists --no-owner \
-  < /복구경로/ragdb.dump
-
-./bin/start.sh
-```
-
-PostgreSQL 실행 중 bind mount 파일을 직접 복사하면 일관되지 않은 백업이 될 수 있으므로
-온라인 파일 복사를 백업으로 사용하지 않습니다.
-
-## 13. 장애 점검
-
-### 13.1 컨테이너가 시작되지 않음
+### 12.1 컨테이너가 시작되지 않음
 
 ```bash
 podman ps -a --filter name=ecm-rag-it-postgres
@@ -519,9 +442,9 @@ podman inspect ecm-rag-it-postgres --format '{{.State.Error}}'
 - `permission denied`: 6절의 `podman unshare chown`과 mount의 `:Z` 확인
 - `address already in use`: `ss -lntp | grep 55432`로 포트 점유 확인
 - registry 접속 시도: 이미지 load 여부를 확인하고 `--pull=never` 사용
-- 기존 데이터의 DB 버전 불일치: 데이터를 삭제하지 말고 먼저 백업·복구 계획 수립
+- 기존 컨테이너 이름 충돌: 신규 테스트 서버인지 확인하고 기존 컨테이너를 임의 삭제하지 않음
 
-### 13.2 애플리케이션에서 Connection refused
+### 12.2 애플리케이션에서 Connection refused
 
 ```bash
 podman ps --filter name=ecm-rag-it-postgres
@@ -533,10 +456,10 @@ grep '^RAG_DB_DSN=' /mnt/appl/ecm-rag/.env
 동일 서버의 rootless Podman 구성에서는 다음 DSN을 사용합니다.
 
 ```dotenv
-RAG_DB_DSN=postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb
+RAG_DB_DSN=postgresql://ragtest:rag12%23%24@10.2.12.98:55432/ragdb
 ```
 
-### 13.3 `vector` extension 오류
+### 12.3 `vector` extension 오류
 
 일반 PostgreSQL 이미지를 사용하면 `vector` extension 파일이 없습니다. 이미지가 반드시
 `pgvector/pgvector:pg17`인지 확인합니다.
@@ -548,13 +471,13 @@ podman exec ecm-rag-it-postgres \
   "SELECT name, default_version, installed_version FROM pg_available_extensions WHERE name='vector';"
 ```
 
-### 13.4 env 비밀번호 변경 후 로그인이 안 됨
+### 12.4 env 비밀번호 변경 후 로그인이 안 됨
 
 `POSTGRES_PASSWORD`는 비어 있는 데이터 경로를 처음 초기화할 때만 반영됩니다. 기존 DB의
 비밀번호는 SQL `ALTER ROLE`로 변경하고 애플리케이션 `.env`와 Podman env 파일을 함께
 갱신해야 합니다. 비밀번호를 명령행이나 로그에 출력하지 않습니다.
 
-## 14. 완료 체크리스트
+## 13. 완료 체크리스트
 
 - [ ] Rocky Linux 9 버전과 architecture 기록
 - [ ] Podman RPM 및 이미지 archive SHA-256 검증
@@ -564,14 +487,14 @@ podman exec ecm-rag-it-postgres \
 - [ ] PostgreSQL 주 버전 17 확인
 - [ ] `vector`, `pg_trgm` 확장 확인
 - [ ] `rag.chunks.embedding`이 `vector(1024)`인지 확인
-- [ ] `001_pgvector.sql` 및 `002`~`006` 적용
+- [ ] 빈 DB에 최신 `001_pgvector.sql` 적용
+- [ ] 애플리케이션 소스와 기존 `.env` 미변경 확인
 - [ ] 애플리케이션 DB 연결 확인
 - [ ] `/health/live`, `/health/ready` 성공
 - [ ] TXT 업로드·worker 완료·검색 왕복 시험
 - [ ] 재부팅 후 Podman DB와 ECM-RAG 기동 시험
-- [ ] `pg_dump` 백업 생성 및 복구 리허설
 
-## 15. 공식 참고 자료
+## 14. 공식 참고 자료
 
 - Podman rootless mode: <https://docs.podman.io/en/stable/markdown/podman.1.html#rootless-mode>
 - Podman restart policy: <https://docs.podman.io/en/stable/markdown/options/restart.html>
