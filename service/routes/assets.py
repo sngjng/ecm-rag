@@ -7,17 +7,51 @@ router는 HTTP 상태 코드와 입력 DTO 변환을 담당하고 실제 SQL은 
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from service.dependencies import authorize, authorize_uploader
 from service.config import get_settings
+from service.markdown_viewer import render_markdown
 from service.repositories import assets
 from service.schemas import AssetCreate, AssetType, AssetUpdate, RelationCreate
 
 
 router = APIRouter(prefix="/assets", tags=["assets"], dependencies=[Depends(authorize)])
+
+
+def _require_document_version(asset_id: UUID, version_id: UUID) -> dict:
+    """활성 문서 버전을 조회하고 다운로드·뷰어의 공통 접근 정책을 적용한다."""
+    version = assets.get_version(asset_id, version_id)
+    if not version:
+        raise HTTPException(404, "문서 버전을 찾을 수 없습니다")
+    if version["asset_type"] != "document":
+        raise HTTPException(400, "Markdown은 문서 자산만 지원합니다")
+    return version
+
+
+def _markdown_artifact_path(version_id: UUID) -> Path | None:
+    """허용된 artifact root 안에 보존된 Markdown 파일이 있으면 반환한다."""
+    artifact_root = get_settings().paths.artifact_root.resolve()
+    markdown_path = (artifact_root / str(version_id) / "document.md").resolve()
+    if markdown_path.is_file() and markdown_path.is_relative_to(artifact_root):
+        return markdown_path
+    return None
+
+
+def _markdown_from_chunks(asset_id: UUID, version_id: UUID) -> str:
+    """별도 MD 파일이 없는 기존 문서를 저장 청크 순서대로 복원한다."""
+    chunks = assets.list_version_markdown_chunks(asset_id, version_id)
+    contents = [
+        str(chunk["display_content"]).strip()
+        for chunk in chunks
+        if str(chunk.get("display_content") or "").strip()
+    ]
+    if not contents:
+        raise HTTPException(404, "Markdown으로 변환할 문서 내용이 없습니다")
+    return "\n\n---\n\n".join(contents) + "\n"
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(authorize_uploader)])
@@ -108,6 +142,68 @@ def download_version(asset_id: UUID, version_id: UUID):
         filename=version["source_filename"],
         media_type="application/octet-stream",
     )
+
+
+@router.get("/{asset_id}/versions/{version_id}/download/markdown")
+def download_version_markdown(asset_id: UUID, version_id: UUID):
+    """인증된 사용자에게 문서 버전의 Markdown 변환본을 전송한다.
+
+    이 endpoint는 ``document`` 자산만 허용한다. PDF는 Docling 처리 시 보존한
+    ``document.md``를 그대로 사용하고, DOCX·TXT처럼 별도 Markdown artifact가 없는
+    문서는 PostgreSQL에 저장된 전체 청크를 ``chunk_seq`` 순서로 결합한다. 따라서 이
+    기능 추가 전에 처리한 문서도 재업로드 없이 다운로드할 수 있다.
+    """
+    version = _require_document_version(asset_id, version_id)
+    markdown_path = _markdown_artifact_path(version_id)
+    markdown_filename = f"{Path(version['source_filename']).stem or 'document'}.md"
+
+    # version_id는 UUID로 검증되지만 artifact root 검사를 추가해 설정 경로나 향후 코드가
+    # 바뀌어도 허용된 처리 산출물 밖의 파일이 노출되지 않게 한다.
+    if markdown_path:
+        return FileResponse(
+            markdown_path,
+            filename=markdown_filename,
+            media_type="text/markdown; charset=utf-8",
+        )
+
+    markdown = _markdown_from_chunks(asset_id, version_id)
+    encoded_filename = quote(markdown_filename, safe="")
+    return Response(
+        content=markdown.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"document.md\"; filename*=UTF-8''{encoded_filename}"
+            )
+        },
+    )
+
+
+@router.get("/{asset_id}/versions/{version_id}/markdown")
+def view_version_markdown(asset_id: UUID, version_id: UUID):
+    """문서 버전의 Markdown을 별도 뷰어가 표시할 안전한 HTML로 반환한다.
+
+    원본 Markdown이나 변환 HTML에 포함된 임의 script/HTML은 실행되지 않는다. 소스코드,
+    로그, 장애자료는 다운로드 endpoint와 동일하게 거부해 화면 우회 호출도 차단한다.
+    """
+    version = _require_document_version(asset_id, version_id)
+    markdown_path = _markdown_artifact_path(version_id)
+    if markdown_path:
+        try:
+            markdown_text = markdown_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise HTTPException(500, "Markdown 문서를 읽을 수 없습니다") from exc
+    else:
+        markdown_text = _markdown_from_chunks(asset_id, version_id)
+
+    return {
+        "asset_id": str(asset_id),
+        "version_id": str(version_id),
+        "title": version.get("title") or Path(version["source_filename"]).stem,
+        "source_filename": version["source_filename"],
+        "version_label": version.get("version_label"),
+        "html": render_markdown(markdown_text),
+    }
 
 
 @router.get("/{asset_id}/upload-history")

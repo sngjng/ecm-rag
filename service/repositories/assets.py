@@ -345,12 +345,33 @@ def get_version(asset_id: UUID | str, version_id: UUID | str) -> dict[str, Any] 
     """활성 Asset에 속한 특정 버전과 원본 저장 정보를 반환한다."""
     with connect() as conn:
         return conn.execute(
-            """SELECT v.*
+            """SELECT v.*, a.asset_type, a.title
                  FROM asset_versions v
                  JOIN assets a USING (asset_id)
                 WHERE v.asset_id=%s AND v.version_id=%s AND a.deleted_at IS NULL""",
             (UUID(str(asset_id)), UUID(str(version_id))),
         ).fetchone()
+
+
+def list_version_markdown_chunks(
+    asset_id: UUID | str, version_id: UUID | str
+) -> list[dict[str, Any]]:
+    """변환 MD 파일이 없는 버전을 위해 저장 청크를 원래 순서대로 반환한다.
+
+    검색 순위나 생성 시각이 아니라 ``chunk_seq``를 사용해야 업로드 당시 문서 순서를
+    재현할 수 있다. soft delete된 Asset은 다운로드 대상에서 제외한다.
+    """
+    with connect() as conn:
+        return conn.execute(
+            """SELECT c.chunk_seq, c.kind, c.display_content
+                 FROM chunks c
+                 JOIN assets a USING(asset_id)
+                WHERE c.asset_id=%s
+                  AND c.version_id=%s
+                  AND a.deleted_at IS NULL
+                ORDER BY c.chunk_seq""",
+            (UUID(str(asset_id)), UUID(str(version_id))),
+        ).fetchall()
 
 
 def list_upload_audit(asset_id: UUID | str) -> list[dict[str, Any]]:

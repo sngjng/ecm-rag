@@ -1310,7 +1310,7 @@
                   >파일을 끌어 놓거나 <span>찾아보기</span></span
                 >
                 <span id="file-guidance" class="dropzone__caption"
-                  >PDF, DOCX, TXT, Markdown · 최대 5 MB</span
+                  >PDF, DOCX, TXT, Markdown · 최대 10 MB</span
                 >
               </span>
               <span id="file-selected" class="file-selected">
@@ -1833,23 +1833,23 @@
         if (!processingModal.open) processingModal.showModal();
       }
 
-      const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+      const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
       const fileRules = {
         document: {
           accept: ".pdf,.docx,.txt,.md",
-          label: "PDF, DOCX, TXT, Markdown · 최대 5 MB",
+          label: "PDF, DOCX, TXT, Markdown · 최대 10 MB",
         },
         incident: {
           accept: ".pdf,.docx,.txt,.md,.log",
-          label: "PDF, DOCX, TXT, Markdown, LOG · 최대 5 MB",
+          label: "PDF, DOCX, TXT, Markdown, LOG · 최대 10 MB",
         },
         error_trace: {
           accept: ".txt,.log,.md",
-          label: "TXT, LOG, Markdown · 최대 5 MB",
+          label: "TXT, LOG, Markdown · 최대 10 MB",
         },
         source_code: {
           accept: ".py,.java,.jar,.sql,.js,.sh,.yml,.yaml,.md,.txt",
-          label: "PY, JAVA, JAR, SQL, JS, SH, YAML · 최대 5 MB",
+          label: "PY, JAVA, JAR, SQL, JS, SH, YAML · 최대 10 MB",
         },
       };
 
@@ -1921,7 +1921,7 @@
           selectedFile.classList.remove("is-visible");
           fileName.textContent = "";
           fileSize.textContent = "";
-          message.textContent = "파일은 최대 5 MB까지 업로드할 수 있습니다.";
+          message.textContent = "파일은 최대 10 MB까지 업로드할 수 있습니다.";
           return false;
         }
         const hasFile = Boolean(file);

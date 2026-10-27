@@ -58,7 +58,7 @@ def auth_headers(client) -> dict[str, str]:
 def test_health_auth_and_asset_crud(client, auth_headers):
     live = client.get("/health/live")
     assert live.status_code == 200
-    assert live.json() == {"status": "ok", "profile": "test"}
+    assert live.json() == {"status": "ok", "profile": "unit-test"}
 
     ready = client.get("/health/ready")
     assert ready.status_code == 200

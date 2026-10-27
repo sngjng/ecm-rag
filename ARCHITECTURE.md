@@ -106,11 +106,12 @@ embedding 문맥에 저장합니다. 답변 근거가 디컴파일 코드이면 
 
 ## 설정
 
-코드에는 환경별 경로·포트·모델명을 두지 않습니다. `config/settings.yaml`을 기본으로
-`config/profiles/{RAG_PROFILE}.yaml`을 deep-merge한 뒤 환경 변수 표현식을 치환합니다.
-DSN, 외부 모델 API 키, 선택적인 Java 인증 wrapper 경로처럼 민감하거나 서버별인 값만 환경 변수로 주입합니다.
+코드는 환경별 경로·포트·모델명을 두지 않습니다. `.env`의 `RAG_PROFILE`이
+`config/profiles/{RAG_PROFILE}.yaml` 하나를 직접 선택하고 환경 변수 표현식을 치환합니다.
+DSN, 외부 모델 API 키, 선택적인 Java 인증 wrapper 경로처럼 민감하거나 서버별인 값은
+`.env`에서만 주입합니다.
 
 대표 환경 변수는 `RAG_DB_DSN`, `RAG_LLM_*`, `RAG_EMBED_*`, `RAG_AUTH_JVM_PATH`,
 `RAG_AUTH_JAVA_DIR`, 선택 wrapper용 `RAG_AUTH_COMMAND`,
-`RAG_DRM_COMMAND`, `RAG_JAVA_COMMAND`, `RAG_CFR_JAR_PATH`입니다. 설정 적용 순서는 공통
-YAML → profile YAML → `${ENV:-default}` 치환입니다.
+`RAG_DRM_COMMAND`, `RAG_JAVA_COMMAND`, `RAG_CFR_JAR_PATH`입니다. 설정 적용 순서는
+`.env` 로드 → 단일 profile YAML 선택 → `${ENV:-default}` 치환입니다.

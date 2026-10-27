@@ -1,12 +1,16 @@
 """PostgreSQL/pgvector 검색 근거와 LLM을 결합하는 공통 질의응답 로직."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from service.config import get_settings
 from service.llm import LlmGenerationError, generate_answer
 from service.schemas import ChatRequest
 from service.search import search
+
+
+logger = logging.getLogger(__name__)
 
 
 DECOMPILED_LINE_NOTICE = (
@@ -64,7 +68,10 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
     try:
         answer = generate_answer(request.query, results, request.history)
         generation_status = "completed"
-    except LlmGenerationError:
+    except LlmGenerationError as exc:
+        # provider 오설정이나 prompt 예산 검증처럼 HTTP 요청 전에 발생한 실패도 API
+        # 로그에 남긴다. 기존에는 사용자 fallback만 반환되어 원인 확인이 어려웠다.
+        logger.warning("LLM answer unavailable: %s", str(exc))
         answer = (
             "관련 문서는 찾았지만 현재 LLM 답변 서버를 사용할 수 없습니다. "
             "아래 검색 결과에서 원문 내용을 확인해 주세요."

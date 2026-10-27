@@ -8,7 +8,7 @@
 - PostgreSQL을 Asset→Version→Job→Chunk/Embedding 원장으로 재설계
 - API 처리와 DRM/파싱/임베딩 Worker 프로세스 분리
 - Worker lease, heartbeat, 자동 재시도와 수동 retry endpoint 추가
-- 기본 YAML, local/Rocky Linux 9/test profile 및 환경변수 치환 추가
+- 단일 완결형 local/Rocky Linux 9/test/unit-test profile 및 환경변수 치환 추가
 - embedding 모델 차원에 맞춘 PostgreSQL SQL 렌더링 도구 추가
 - display text와 metadata-enriched embedding text 분리
 - 장애 필드 구조화, 에러 이벤트/스택 프레임, 코드 심볼 저장 강화
@@ -73,20 +73,20 @@
 ## 현행 운영 기준
 
 - ChromaDB 코드는 사용하지 않으며 관계형 원장, FTS와 벡터를 PostgreSQL에 통합합니다.
-- 업로드는 1요청 1파일, 기본 5MiB 상한입니다. 다중 사용자의 작업은 PostgreSQL queue와
+- 업로드는 1요청 1파일, 기본 10MiB 상한입니다. 다중 사용자의 작업은 PostgreSQL queue와
   복수 worker가 `FOR UPDATE SKIP LOCKED`로 나눠 처리합니다.
 - 실패한 동일 원본 작업은 새 Asset을 만들지 않고 재접수할 수 있으며, 성공한 동일
   SHA-256 원본의 중복 Version 생성은 거부합니다.
 - 현재 임시 모드에서는 화면/API도 세션 없이 임시 사용자로 동작합니다. 인증 활성화 후
   화면용 `/api/v1/chat`은 세션을 요구하지만 외부 연동 endpoint는 계속 인증하지 않으므로
   방화벽/reverse proxy에서 허용 대역을 반드시 제한합니다.
-- 기본 저장 경로는 `artifacts/uploads`, `artifacts/processed`이고 test profile은
-  `artifacts/test/*`, Rocky Linux 9 profile은 `/srv/ecm-rag/uploads`,
-  `/srv/ecm-rag/processed`를 사용합니다.
+- local/test의 기본 저장 경로는 기존 데이터와 호환되는 `artifacts/uploads`,
+  `artifacts/processed`이고 unit-test profile은 `artifacts/unit-test/*`를 사용합니다.
+  Rocky Linux 9 profile의 경로는 `.env`로 주입합니다.
 
 ## 검증 제한
 
-로컬에서는 단위 테스트와 test profile의 deterministic embedding을 검증할 수 있습니다.
+로컬에서는 단위 테스트와 unit-test profile의 deterministic embedding을 검증할 수 있습니다.
 실제 PostgreSQL/pgvector, 사내 모델, `login.py` 인증·Java DRM, JDK/CFR 및 GPU를 포함하는 통합·부하·
 보안 시험은 대상 폐쇄망 Rocky Linux 9 환경에서 `tests/integration` 시나리오와
 `OPERATIONS_MANUAL.md`의 인수 체크리스트를 기준으로 수행해야 합니다.

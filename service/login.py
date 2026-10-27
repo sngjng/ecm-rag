@@ -2,7 +2,7 @@
 
 이 모듈은 사용자가 제공한 JPype 기반 ``login.py``의 호출 규격을 서비스 구조에 맞게
 정리한 것이다. FastAPI route는 :func:`authenticate_employee`만 호출하며, JVM 경로와
-Java 라이브러리 위치는 모두 ``config/settings.yaml``과 환경변수에서 읽는다.
+Java 라이브러리 위치는 선택된 ``config/profiles/*.yaml``과 환경변수에서 읽는다.
 
 보안 원칙:
 

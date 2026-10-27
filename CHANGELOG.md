@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- 설정을 `.env + 단일 완결형 Profile YAML` 2단계로 단순화하고 공통
+  `config/settings.yaml`과 deep-merge를 제거; `test`는 실제 폐쇄망 모델 연동용으로
+  전환하고 외부 서비스 없는 자동화 설정은 `unit-test` profile로 분리; 기존 테스트
+  서버의 원문 다운로드가 유지되도록 test 저장 경로는 Profile YAML의
+  `artifacts/uploads`, `artifacts/processed`로 고정 관리
+- 문서 검색 결과 작업을 `원문 다운로드`와 `MD 뷰어` 두 개로 정리하고, 별도
+  `md_view.html`에서 H1~H3 기반 좌측 목차, 현재 항목 강조, 원문·MD 다운로드를 제공;
+  운영 목록의 `Markdown==3.10.2`로 서버에서
+  렌더링하고 HTML·위험 URL을 허용 목록으로 정제해 저장형 XSS 차단
+- 단건 업로드 제한을 서버·테스트 profile·업로드 화면에서 5MiB에서 10MiB로 상향
+- 문서 자산 전용 MD 다운로드 endpoint를 추가해 뷰어 내부에서 제공하고, PDF의 보존
+  Markdown 또는 기존 문서의 저장 청크를 이용해 재업로드 없이 내려받도록 구성
 - Rocky Linux 9 폐쇄망 테스트 환경에서 애플리케이션 수정과 기존 데이터 이전 없이
   PostgreSQL 17·pgvector를 rootless Podman으로 신규 구축할 수 있도록 RPM·이미지 반입,
   데이터 영속화, SELinux, 빈 DB 초기화, 재부팅 자동기동 및 장애 점검 가이드 추가

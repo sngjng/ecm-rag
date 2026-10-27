@@ -1,0 +1,140 @@
+# 자동화 테스트 전용 완결 설정. 외부 LLM·Embedding·OCR을 호출하지 않는다.
+runtime:
+  environment: unit-test
+  os: test
+  python: "3.11"
+
+server:
+  host: 127.0.0.1
+  port: 8300
+  api_prefix: /api/v1
+  docs_enabled: true
+  workers: 1
+  limit_concurrency: 100
+  backlog: 256
+  max_upload_mb: 10
+
+paths:
+  upload_root: artifacts/unit-test/uploads
+  artifact_root: artifacts/unit-test/processed
+  web_root: web
+
+database:
+  engine: postgresql
+  dsn: "${RAG_DB_DSN:-}"
+  connect_timeout_seconds: 10
+  schema_name: rag
+  vector:
+    provider: pgvector
+    distance_metric: cosine
+    hnsw_ef_search: 20
+
+models:
+  llm:
+    provider: stub
+    base_url: http://127.0.0.1:18000/v1
+    api_key: ""
+    model: test-llm
+    timeout_seconds: 10
+    temperature: 0.1
+    max_tokens: 1200
+    context_top_k: 8
+    max_context_characters: 24000
+    context_window_tokens: 8192
+    prompt_safety_tokens: 1000
+    estimated_characters_per_token: 1.0
+    max_history_characters: 1500
+  embedding:
+    provider: deterministic_stub
+    base_url: http://127.0.0.1:18200/v1/embeddings
+    api_key: ""
+    model: test-embedding
+    dimension: 1024
+    batch_size: 8
+    max_input_characters: 24000
+    timeout_seconds: 10
+  reranker:
+    enabled: false
+    provider: local_flag_embedding
+    model_path: ""
+    use_fp16: false
+    top_k: 10
+
+solutions:
+  document_parser: docling
+  ocr: disabled
+  easyocr_languages: [ko, en]
+  docling:
+    artifacts_path: ""
+    require_local_artifacts: false
+    table_mode: accurate
+    do_cell_matching: true
+  drm:
+    enabled: false
+    command: ""
+    timeout_seconds: 120
+  jar_decompiler:
+    backend: cfr
+    java_command: java
+    cfr_jar_path: ""
+    timeout_seconds: 300
+    max_class_files: 2000
+    max_uncompressed_mb: 200
+    max_java_file_kb: 2048
+
+ingestion:
+  default_lifecycle_status: approved
+  max_pending_jobs: 100
+  duplicate_detection:
+    enabled: true
+    max_candidates: 5
+  allowed_extensions:
+    document: [.pdf, .docx, .txt, .md]
+    incident: [.txt, .md]
+    error_trace: [.log, .txt]
+    source_code: [.py, .java, .jar, .sql, .js, .sh, .yml, .yaml]
+
+worker:
+  poll_seconds: 0.1
+  claim_batch_size: 1
+  processes: 1
+  lease_seconds: 30
+  max_attempts: 3
+  worker_name: unit-test-worker
+
+retrieval:
+  exact_top_k: 30
+  lexical_top_k: 40
+  vector_top_k: 40
+  max_vector_distance: 0.55
+  fusion_top_k: 30
+  rrf_k: 60
+  default_limit: 10
+  max_limit: 30
+  current_versions_only: true
+  approved_versions_only: true
+  expand_neighbors: 1
+
+security:
+  authentication:
+    enabled: false
+    provider: development_stub
+    java_command: ""
+    jvm_path: ""
+    java_base_dir: ""
+    java_classpath: ""
+    outbound_process_class: cis.internal.process.outbound.OutboundProcess
+    encrypt_util_class: cis.internal.util.EncryptUtil
+    request_vo_class: ZZUL0001VO
+    response_vo_class: ZZUL0002VO
+    interface_id: IR_HI-FMSCLIENT_0001
+    system_id: "000164"
+    timeout_seconds: 15
+    session_hours: 8
+    cookie_name: ecm_rag_session
+    cookie_secure: false
+    cookie_samesite: strict
+    temporary_employee_id: temporary
+    temporary_employee_name: 임시 사용자
+    temporary_department: IDC본부
+    bootstrap_admin_employee_ids: ""

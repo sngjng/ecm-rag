@@ -1,8 +1,8 @@
-"""YAML 기반 애플리케이션 설정 로더.
+"""단일 Profile YAML 기반 애플리케이션 설정 로더.
 
-코드는 특정 OS, 모델 이름, 포트, 디렉터리 또는 외부 솔루션 주소를 알지 못한다.
-기본 설정(`config/settings.yaml`) 위에 환경별 profile을 deep-merge하고, 마지막으로
-`${ENV_NAME}` 또는 `${ENV_NAME:-default}` 표현식을 환경 변수로 치환한다.
+``RAG_PROFILE``로 ``config/profiles/<profile>.yaml`` 하나를 선택한 뒤
+`${ENV_NAME}` 또는 `${ENV_NAME:-default}` 표현식만 환경 변수로 치환한다. 공통 YAML과
+profile을 병합하지 않으므로 최종 설정의 출처가 선택된 파일 하나로 명확하다.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PROFILE_DIR = ROOT / "config" / "profiles"
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
 
 
@@ -38,7 +39,7 @@ class ServerSettings(SettingsModel):
     workers: int = Field(default=2, ge=1, le=32)
     limit_concurrency: int = Field(default=100, ge=1, le=10000)
     backlog: int = Field(default=256, ge=1, le=65535)
-    max_upload_mb: int = Field(default=5, ge=1)
+    max_upload_mb: int = Field(default=10, ge=1)
 
     @field_validator("api_prefix")
     @classmethod
@@ -250,17 +251,6 @@ class AppSettings(SettingsModel):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """중첩 mapping은 재귀 병합하고 scalar/list는 profile 값으로 교체한다."""
-    result = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = _deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def _expand_env(value: Any) -> Any:
     """YAML 전체에서 환경 변수 표현식을 치환한다. 비밀값을 YAML에 저장하지 않는다."""
     if isinstance(value, dict):
@@ -302,23 +292,19 @@ def _resolve_paths(settings: AppSettings) -> AppSettings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
-    """공통 YAML, 환경 profile, 환경 변수 순서로 최종 설정을 생성한다.
+    """선택된 Profile YAML 하나를 읽고 환경변수 치환·형식 검증을 수행한다.
 
-    우선순위는 ``settings.yaml < profiles/{profile}.yaml < 환경 변수 치환값``이다.
-    Pydantic의 ``extra=forbid`` 정책으로 오탈자 설정을 조용히 무시하지 않고 시작 시
-    실패시킨다. 결과는 프로세스 동안 캐시해 매 요청마다 파일을 읽지 않는다.
+    ``RAG_PROFILE``이 없으면 개발 편의를 위해 ``local``을 사용한다. 파일명에 경로 구분자나
+    상위 경로를 허용하지 않아 환경변수 변조로 profiles 디렉터리 밖의 YAML을 읽지 않는다.
+    결과는 프로세스 동안 캐시하므로 설정 변경 후에는 API와 Worker를 재시작해야 한다.
     """
-    config_path = Path(os.environ.get("RAG_CONFIG_FILE", ROOT / "config" / "settings.yaml"))
-    data = _read_yaml(config_path)
-    profile = os.environ.get("RAG_PROFILE", str(data.pop("default_profile", "local"))).strip()
-    if profile:
-        profile_path = config_path.parent / "profiles" / f"{profile}.yaml"
-        if profile_path.is_file():
-            data = _deep_merge(data, _read_yaml(profile_path))
-        elif "RAG_PROFILE" in os.environ:
-            raise FileNotFoundError(f"설정 profile을 찾을 수 없습니다: {profile_path}")
+    profile = os.environ.get("RAG_PROFILE", "local").strip() or "local"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile):
+        raise ValueError("RAG_PROFILE은 영문자·숫자·하이픈·밑줄만 사용할 수 있습니다")
+    profile_path = PROFILE_DIR / f"{profile}.yaml"
+    data = _read_yaml(profile_path)
     settings = AppSettings.model_validate(_expand_env(data))
-    settings.runtime.environment = profile or settings.runtime.environment
+    settings.runtime.environment = profile
     return _resolve_paths(settings)
 
 

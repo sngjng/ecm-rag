@@ -90,6 +90,12 @@ def search_page(request: Request):
     return _guarded_page(request, "search.html", authorize)
 
 
+@app.get("/md_view.html", include_in_schema=False)
+def markdown_view_page(request: Request):
+    """검색 결과의 문서 Markdown을 읽기 전용으로 표시하는 화면을 반환한다."""
+    return _guarded_page(request, "md_view.html", authorize)
+
+
 @app.get("/admin.html", include_in_schema=False)
 def admin_page(request: Request):
     """PostgreSQL 자산과 pgvector 청크를 관리하는 내부 운영 화면을 반환한다."""

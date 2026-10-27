@@ -310,6 +310,12 @@ podman exec ecm-rag-it-postgres \
 ```dotenv
 RAG_PROFILE=test
 RAG_DB_DSN=postgresql://ragtest:rag12%23%24@10.2.12.98:55432/ragdb
+RAG_LLM_URL=http://127.0.0.1:11434/v1
+RAG_LLM_MODEL=qwen3-local-8k:latest
+RAG_LLM_API_KEY=
+RAG_EMBED_URL=http://127.0.0.1:11434/v1/embeddings
+RAG_EMBED_MODEL=qwen3-embedding-0.6b:latest
+RAG_EMBED_API_KEY=
 ECM_RAG_PYTHON=/mnt/appl/venv/venv_ecmrag/bin/python
 ECM_RAG_USER=gptoss
 ```

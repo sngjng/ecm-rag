@@ -137,11 +137,14 @@ JAR 업로드는 Python 패키지를 추가로 설치하지 않습니다. JDK의
 후보를 만들거나 자동 병합하지 않으며 사용자가 새 버전과 별도 신규 자산 중 하나를
 확인합니다.
 
-- 공통값: `config/settings.yaml`
 - 로컬 개발: `config/profiles/local.yaml`
-- Rocky Linux 9: `config/profiles/rockylinux9.yaml`
-- 테스트: `config/profiles/test.yaml`
-- 별도 설정 파일: `RAG_CONFIG_FILE=/etc/ecm-rag/settings.yaml`
+- 폐쇄망 통합 테스트: `config/profiles/test.yaml`
+- 외부 서비스 없는 자동 테스트: `config/profiles/unit-test.yaml`
+- Rocky Linux 9 운영: `config/profiles/rockylinux9.yaml`
+
+`RAG_PROFILE`이 위 YAML 중 하나를 직접 선택하며 다른 YAML과 병합하지 않습니다. DB DSN,
+모델 주소·이름, 비밀값과 서버별 경로는 프로젝트 루트 `.env`에 두고 선택된 YAML의
+`${ENV_NAME}` 표현식으로 주입합니다.
 
 ## 프로세스별 실행
 
@@ -167,7 +170,7 @@ bin/stop.sh
 - `.env`가 있으면 시작 시 자동으로 읽습니다.
 - 시작 전에 `sql/002_session_auth_audit.sql`과 `003_code_symbol_stack_lookup.sql`을
   idempotent하게 자동 적용합니다.
-- 원본 파일은 `server.max_upload_mb` 설정에 따라 현재 1건당 최대 5MiB까지 허용합니다.
+- 원본 파일은 `server.max_upload_mb` 설정에 따라 현재 1건당 최대 10MiB까지 허용합니다.
 
 ### 다중 사용자 부하 보호
 
@@ -200,16 +203,16 @@ curl http://127.0.0.1:8300/health/ready
 
 현재 임시 모드의 첫 화면 `/`은 간편 업로드이며 `/login`도 `/`로 이동합니다. 간편
 업로드는 `/spl_upload.html`, 상세 업로드는 `/upload.html`, 문서 질의응답은
-`/search.html`, 운영 데이터 관리는 `/admin.html`에서 사용합니다. 업로드·검색 화면의
+`/search.html`, 검색 문서의 Markdown 열람은 `/md_view.html`, 운영 데이터 관리는
+`/admin.html`에서 사용합니다. 업로드·검색 화면의
 데이터 관리 링크는 기본적으로 숨겨지고 `/api/v1/auth/me`의 `roles`에 `admin`이 있는
 사용자에게만 표시됩니다. 인증을 활성화하면
 `/login`에서 로그인 후 간편 업로드로 이동합니다. 기존
 DB에는 `sql/002_session_auth_audit.sql`과
 `sql/003_code_symbol_stack_lookup.sql`을 추가 적용해야 합니다.
 
-인증을 활성화한 local/test profile의 화면 확인 계정은 `test / test`입니다. 운영
-`rockylinux9` profile에서는 개발 계정이 비활성화되고 기본 `python_module` provider가
-`service/login.py`를 호출합니다.
+인증을 활성화한 local/test/unit-test profile의 화면 확인 계정은 `test / test`입니다.
+운영 `rockylinux9` profile은 `python_module` provider가 `service/login.py`를 호출합니다.
 
 `admin.html`의 화면 제목은 **데이터 관리**이며, `assets` 메타데이터의
 생성·조회·수정·논리 삭제·복구, Version 조회,
@@ -229,8 +232,9 @@ DB에 보존되고 일반 검색에서만 제외됩니다. 청크 물리 삭제�
 | profile | 원본 | 변환·디컴파일 산출물 |
 |---|---|---|
 | local/default | `artifacts/uploads` | `artifacts/processed` |
-| test | `artifacts/test/uploads` | `artifacts/test/processed` |
-| rockylinux9 | `/srv/ecm-rag/uploads` | `/srv/ecm-rag/processed` |
+| test | `artifacts/uploads` | `artifacts/processed` |
+| unit-test | `artifacts/unit-test/uploads` | `artifacts/unit-test/processed` |
+| rockylinux9 | `.env`의 `RAG_UPLOAD_ROOT` | `.env`의 `RAG_ARTIFACT_ROOT` |
 
 PostgreSQL의 실제 데이터 디렉터리는 DB 설치 방식이 관리하며 `SHOW data_directory;`로
 확인합니다. DB 백업과 위 파일 경로 백업은 같은 시점의 세트로 보관해야 합니다.
@@ -252,7 +256,7 @@ YAML로 조정할 수 있습니다. `/api/v1/chat`은 이 검색 결과를 로�
 전달해 출처 번호가 포함된 답변과 근거 검색 결과를 함께 반환합니다. LLM 장애 시에도
 검색 결과는 유지되며 `generation_status=unavailable`로 상태를 구분합니다.
 
-LLM 연결 정보와 생성 제한은 코드가 아닌 `config/settings.yaml` 및 환경변수로 관리합니다.
+LLM 연결 정보와 생성 제한은 코드가 아닌 선택된 `config/profiles/*.yaml` 및 `.env`로 관리합니다.
 `context_window_tokens`는 실제 모델 context와 동일하게 설정해야 하며, 서비스는
 `max_tokens`, `prompt_safety_tokens`, 최근 대화 이력을 제외한 남은 예산만 검색 근거에
 사용합니다. 그래도 모델이 context 초과를 반환하면 이력을 제거하고 근거를 절반으로

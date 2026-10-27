@@ -264,6 +264,9 @@ Cookie: ecm_rag_session={HttpOnly session}
 | PATCH | `/api/v1/assets/{asset_id}` | 전달한 필드만 수정 | `200` |
 | DELETE | `/api/v1/assets/{asset_id}` | soft delete 및 진행 작업 취소 | `204` |
 | GET | `/api/v1/assets/{asset_id}/versions` | 버전 이력 조회 | 내부 `source_path` 제외 |
+| GET | `/api/v1/assets/{asset_id}/versions/{version_id}/download` | 등록 원본 다운로드 | 업로드 루트 경로 검증 |
+| GET | `/api/v1/assets/{asset_id}/versions/{version_id}/download/markdown` | 문서 자산의 변환 Markdown 다운로드 | 문서 외 유형 `400`; 보존 MD 우선, 없으면 저장 청크로 생성 |
+| GET | `/api/v1/assets/{asset_id}/versions/{version_id}/markdown` | 문서 Markdown 웹 뷰어 데이터 | 안전한 HTML과 제목·파일·버전 metadata; 문서 외 유형 `400` |
 | GET | `/api/v1/assets/{asset_id}/upload-history` | 사원별 문서 접수 감사 이력 | 사번·성명·부서·등록 구분 |
 | POST | `/api/v1/assets/{asset_id}/relations` | Asset 관계 생성 | `201`, 충돌 `409` |
 | GET | `/api/v1/assets/{asset_id}/relations` | 연관 자산 조회 | `200` |
@@ -309,6 +312,15 @@ DELETE는 embedding이 포함된 `chunks` 행을 삭제하며 외래키 cascade�
 `/upload.html`을 사용합니다. 두 업로드 화면의 우측 처리 파이프라인 아래에서
 `search.html`로 이동할 수 있고, 검색 화면 상단의 문서 업로드 메뉴는
 `spl_upload.html`로 돌아갑니다.
+
+검색 결과 카드에는 **원문 다운로드**와 **MD 뷰어**만 표시됩니다. MD 뷰어는
+`document` 자산에서만 활성화되며 소스코드·로그·장애자료에서는 비활성화됩니다.
+`MD 뷰어`는 새 `md_view.html`을 열어 H1~H3 제목으로 만든 좌측 목차와 우측 본문을
+표시합니다. MD 파일 다운로드가 필요하면 뷰어 내부의 **MD 다운로드**를 사용합니다.
+서버는 운영 목록의 Python Markdown으로 변환한 뒤 허용된
+태그·속성·URL만 반환하므로 업로드 문서의 HTML·script는 실행되지 않습니다. PDF는
+Docling이 보존한 `document.md`를 사용하고, 별도 MD artifact가 없는 기존 DOCX·TXT 문서는
+PostgreSQL 청크를 문서 순서로 결합하므로 재업로드가 필요하지 않습니다.
 
 검색 요청:
 

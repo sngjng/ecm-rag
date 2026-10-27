@@ -12,7 +12,7 @@ def embed(
 ) -> list[list[float]]:
     """문자열 목록을 설정된 차원의 embedding 벡터로 변환한다.
 
-    test profile의 deterministic_stub은 같은 입력에 항상 같은 벡터를 만들어 DB/검색
+    unit-test profile의 deterministic_stub은 같은 입력에 항상 같은 벡터를 만들어 DB/검색
     통합 테스트를 모델 서버 없이 수행하게 한다. 운영 profile은 OpenAI 호환 BGE-M3
     endpoint를 batch 단위로 호출하고 응답 개수·차원·유한값을 검증한다.
     """

@@ -28,6 +28,7 @@ pandas==3.0.5
 
 # Config / API
 PyYAML==6.0.3
+Markdown==3.10.2
 fastapi==0.136.1
 uvicorn==0.46.0
 tqdm==4.67.3

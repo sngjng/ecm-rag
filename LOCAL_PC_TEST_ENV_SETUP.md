@@ -559,6 +559,10 @@ SQL
 
 ## 10. 테스트 환경 변수
 
+현재 설정은 `.env`와 선택된 완결형 `config/profiles/*.yaml`만 사용합니다. 이전 배포본의
+`config/settings.yaml`은 삭제하고 `.env`의 `RAG_CONFIG_FILE` 항목도 제거합니다.
+업로드·변환 파일과 PostgreSQL 데이터는 삭제하지 않습니다.
+
 각 터미널을 새로 열 때 다음 값을 설정합니다. DB 방식에 따라 DSN 포트만 다릅니다.
 
 Docker DB:
@@ -567,7 +571,7 @@ Docker DB:
 cd ~/workspace/ecm-rag
 source .venv/bin/activate
 
-export RAG_PROFILE=test
+export RAG_PROFILE=unit-test
 export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:55432/ragdb'
 ```
 
@@ -577,7 +581,7 @@ WSL 네이티브 DB:
 cd ~/workspace/ecm-rag
 source .venv/bin/activate
 
-export RAG_PROFILE=test
+export RAG_PROFILE=unit-test
 export RAG_DB_DSN='postgresql://ragtest:ragtest_password@127.0.0.1:5432/ragdb'
 ```
 
@@ -588,7 +592,7 @@ psql "$RAG_DB_DSN" -Atc \
   "SELECT current_database(), current_user, inet_server_port(), current_setting('server_version');"
 ```
 
-`test` profile의 특징:
+`unit-test` profile의 특징:
 
 - 실제 BGE-M3 대신 `deterministic_stub` embedding 사용
 - 실제 Java 로그인 대신 `development_stub` 사용
@@ -596,7 +600,7 @@ psql "$RAG_DB_DSN" -Atc \
 - 기본 인증 비활성: 로그인 없이 임시 사용자로 화면/API 사용
 - DRM 비활성화
 - reranker 비활성화
-- 업로드 제한 5 MB
+- 업로드 제한 10 MB
 
 따라서 PostgreSQL, API, 세션, 업로드, worker 및 검색 흐름을 외부 모델 없이 검증할 수
 있습니다.
@@ -665,7 +669,7 @@ curl http://127.0.0.1:8300/health/ready
 예상 결과:
 
 ```json
-{"status":"ok","profile":"test"}
+{"status":"ok","profile":"unit-test"}
 {"status":"ready","database":"postgresql"}
 ```
 
@@ -681,7 +685,7 @@ Windows 브라우저에서 다음 주소를 엽니다.
 - API 문서: `http://localhost:8300/docs`
 
 현재 기본값에서는 로그인하지 않습니다. `/api/v1/auth/me`는 임시 사용자 정보를
-반환합니다. 아래 계정은 `RAG_AUTH_ENABLED=true`로 인증을 활성화한 local/test profile에서만
+반환합니다. 아래 계정은 `RAG_AUTH_ENABLED=true`로 인증을 활성화한 local/test/unit-test profile에서만
 사용합니다.
 
 테스트 로그인:
@@ -755,7 +759,7 @@ curl -X POST http://127.0.0.1:8300/api/v1/external/answer \
 핵심 통합 테스트가 끝난 후 실제 환경을 연결합니다.
 
 ```bash
-export RAG_PROFILE=local
+export RAG_PROFILE=test
 export RAG_DB_DSN='postgresql://raguser:실제비밀번호@DB주소:5432/ragdb'
 
 export RAG_EMBED_URL='http://임베딩서버:8200/v1/embeddings'
@@ -778,7 +782,7 @@ export RAG_CFR_JAR_PATH='/경로/cfr-0.152.jar'
 주의사항:
 
 - BGE-M3 응답은 PostgreSQL 스키마와 같은 1024차원이어야 합니다.
-- `local` profile은 쿠키 `Secure=false`라 HTTP 로컬 테스트에만 사용합니다.
+- `test` profile은 쿠키 `Secure=false`라 HTTP 폐쇄망 테스트에만 사용합니다.
 - Rocky Linux 운영 profile은 HTTPS와 `Secure=true` 쿠키를 전제로 합니다.
 - 기본 로그인 구현 계약은 `LOGIN_INTEGRATION.md`를 따릅니다.
 - 기존 Java wrapper를 선택할 때만 `JAVA_AUTH_INTEGRATION.md`를 따릅니다.

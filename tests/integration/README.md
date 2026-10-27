@@ -16,7 +16,7 @@
 테스트 DB에 `sql/001_pgvector.sql`을 적용한 뒤 다음과 같이 실행합니다.
 
 ```bash
-export RAG_PROFILE=test
+export RAG_PROFILE=unit-test
 export RAG_DB_DSN='postgresql://ragtest:비밀번호@127.0.0.1:55432/ragdb'
 .venv/bin/python -m pytest -q
 ```
@@ -38,7 +38,7 @@ export RAG_DB_DSN='postgresql://ragtest:비밀번호@127.0.0.1:55432/ragdb'
 7. exact error code, FTS, vector, metadata filter, reranker 결과 검증
 8. 최신 승인 버전 기본 필터와 `include_obsolete=true` 검증
 9. OpenWebUI에서 파일명·버전·페이지/라인 인용 표시
-10. 기본 5MiB 파일 제한, 경로 traversal, 세션 만료·로그아웃, TLS proxy 검증
+10. 기본 10MiB 파일 제한, 경로 traversal, 세션 만료·로그아웃, TLS proxy 검증
 11. 복호화 임시파일 삭제와 canonical/DB 평문 접근권한 확인
 12. 백업·복구 후 vector index와 검색 결과 일치 확인
 13. JAR CFR 디컴파일과 직접 Java 업로드의 package/class/method·예외·오류코드 적재

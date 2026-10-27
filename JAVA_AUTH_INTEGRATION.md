@@ -29,7 +29,7 @@ export RAG_AUTH_COMMAND='java -jar /srv/ecm-rag/lib/company-auth-adapter.jar'
 Python은 shell을 사용하지 않고 명령과 인자를 분리해 실행합니다. 운영 서비스 계정에
 wrapper와 JAR 실행 권한만 부여하고 소유자 외 쓰기 권한은 제거해야 합니다.
 
-로컬 및 자동화 테스트 profile에서는 Java 모듈 없이 `test / test` 계정을 사용할 수
+local, test 및 unit-test profile에서는 Java 모듈 없이 `test / test` 계정을 사용할 수
 있습니다. 이 계정은 `development_stub` provider에서만 동작하며 Rocky Linux 운영
 profile은 기본 `java_command`를 유지합니다.
 

@@ -1,23 +1,140 @@
+# Rocky Linux 9 운영용 완결 설정. 접속정보·경로·비밀값은 .env에서 주입한다.
 runtime:
+  environment: rockylinux9
   os: rockylinux9
+  python: "3.11"
 
 server:
   host: 0.0.0.0
+  port: 8300
+  api_prefix: /api/v1
   docs_enabled: false
+  workers: "${ECM_RAG_API_WORKERS:-2}"
+  limit_concurrency: "${ECM_RAG_API_LIMIT_CONCURRENCY:-100}"
+  backlog: "${ECM_RAG_API_BACKLOG:-256}"
+  max_upload_mb: 10
 
 paths:
-  upload_root: /srv/ecm-rag/uploads
-  artifact_root: /srv/ecm-rag/processed
+  upload_root: "${RAG_UPLOAD_ROOT:-/srv/ecm-rag/uploads}"
+  artifact_root: "${RAG_ARTIFACT_ROOT:-/srv/ecm-rag/processed}"
+  web_root: "${RAG_WEB_ROOT:-web}"
+
+database:
+  engine: postgresql
+  dsn: "${RAG_DB_DSN}"
+  connect_timeout_seconds: 10
+  schema_name: rag
+  vector:
+    provider: pgvector
+    distance_metric: cosine
+    hnsw_ef_search: 100
 
 models:
+  llm:
+    provider: openai_compatible
+    base_url: "${RAG_LLM_URL}"
+    api_key: "${RAG_LLM_API_KEY:-}"
+    model: "${RAG_LLM_MODEL}"
+    timeout_seconds: 120
+    temperature: 0.1
+    max_tokens: 1200
+    context_top_k: 8
+    max_context_characters: 24000
+    context_window_tokens: 8192
+    prompt_safety_tokens: 1000
+    estimated_characters_per_token: 1.0
+    max_history_characters: 1500
+  embedding:
+    provider: openai_compatible
+    base_url: "${RAG_EMBED_URL}"
+    api_key: "${RAG_EMBED_API_KEY:-}"
+    model: "${RAG_EMBED_MODEL}"
+    dimension: 1024
+    batch_size: 8
+    max_input_characters: 24000
+    timeout_seconds: 120
   reranker:
     enabled: true
+    provider: local_flag_embedding
     model_path: "${RAG_RERANK_MODEL_PATH}"
     use_fp16: true
+    top_k: 10
 
 solutions:
+  document_parser: docling
+  ocr: easyocr
+  easyocr_languages: [ko, en]
   docling:
+    artifacts_path: "${RAG_DOCLING_ARTIFACTS}"
     require_local_artifacts: true
+    table_mode: accurate
+    do_cell_matching: true
   drm:
-    enabled: true
+    enabled: "${RAG_DRM_ENABLED:-true}"
     command: "${RAG_DRM_COMMAND}"
+    timeout_seconds: 120
+  jar_decompiler:
+    backend: cfr
+    java_command: "${RAG_JAVA_COMMAND:-java}"
+    cfr_jar_path: "${RAG_CFR_JAR_PATH}"
+    timeout_seconds: 300
+    max_class_files: 2000
+    max_uncompressed_mb: 200
+    max_java_file_kb: 2048
+
+ingestion:
+  default_lifecycle_status: approved
+  max_pending_jobs: 100
+  duplicate_detection:
+    enabled: true
+    max_candidates: 5
+  allowed_extensions:
+    document: [.pdf, .docx, .txt, .md]
+    incident: [.txt, .md]
+    error_trace: [.log, .txt]
+    source_code: [.py, .java, .jar, .sql, .js, .sh, .yml, .yaml]
+
+worker:
+  poll_seconds: 3
+  claim_batch_size: 1
+  processes: "${ECM_RAG_WORKER_PROCESSES:-2}"
+  lease_seconds: 900
+  max_attempts: 3
+  worker_name: "${RAG_WORKER_NAME:-}"
+
+retrieval:
+  exact_top_k: 30
+  lexical_top_k: 40
+  vector_top_k: 40
+  max_vector_distance: 0.55
+  fusion_top_k: 30
+  rrf_k: 60
+  default_limit: 10
+  max_limit: 30
+  current_versions_only: true
+  approved_versions_only: true
+  expand_neighbors: 1
+
+security:
+  authentication:
+    enabled: "${RAG_AUTH_ENABLED:-false}"
+    provider: python_module
+    java_command: "${RAG_AUTH_COMMAND:-}"
+    jvm_path: "${RAG_AUTH_JVM_PATH:-}"
+    java_base_dir: "${RAG_AUTH_JAVA_DIR:-}"
+    java_classpath: "${RAG_AUTH_CLASSPATH:-}"
+    outbound_process_class: "${RAG_AUTH_OUTBOUND_CLASS:-cis.internal.process.outbound.OutboundProcess}"
+    encrypt_util_class: "${RAG_AUTH_ENCRYPT_CLASS:-cis.internal.util.EncryptUtil}"
+    request_vo_class: "${RAG_AUTH_REQUEST_VO_CLASS:-ZZUL0001VO}"
+    response_vo_class: "${RAG_AUTH_RESPONSE_VO_CLASS:-ZZUL0002VO}"
+    interface_id: "${RAG_AUTH_INTERFACE_ID:-IR_HI-FMSCLIENT_0001}"
+    system_id: "${RAG_AUTH_SYSTEM_ID:-000164}"
+    timeout_seconds: 15
+    session_hours: 8
+    cookie_name: ecm_rag_session
+    cookie_secure: true
+    cookie_samesite: strict
+    temporary_employee_id: temporary
+    temporary_employee_name: 임시 사용자
+    temporary_department: IDC본부
+    bootstrap_admin_employee_ids: "${RAG_AUTH_ADMIN_EMPLOYEE_IDS:-}"

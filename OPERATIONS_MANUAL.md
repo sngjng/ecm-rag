@@ -448,7 +448,7 @@ RAG_JAVA_COMMAND=java
 RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
 ```
 
-`config/settings.yaml`의 `solutions.jar_decompiler`에서 timeout, 최대 클래스 수, 최대 압축
+선택된 `config/profiles/*.yaml`의 `solutions.jar_decompiler`에서 timeout, 최대 클래스 수, 최대 압축
 해제 크기와 Java 파일별 크기 제한을 관리합니다. worker는 디컴파일 결과를
 `paths.artifact_root/{version_id}/decompiled`에 저장하고, `jar-index.json`에 처리 범위를
 기록합니다. JAR 작업이 실패하면 `artifacts/logs/worker.log`에서 CFR 종료코드, timeout,
@@ -509,21 +509,31 @@ solutions:
 
 ## 12. 환경 설정 파일
 
-### 12.1 적용 우선순위
+### 12.1 적용 순서
 
 ```text
-config/settings.yaml
-  < config/profiles/{RAG_PROFILE}.yaml
-  < YAML 안의 ${환경변수} 치환값
+.env 로드
+  → RAG_PROFILE 확인
+  → config/profiles/{RAG_PROFILE}.yaml 단일 파일 로드
+  → YAML 안의 ${환경변수} 치환
+  → 형식 검증 및 프로세스 캐시
 ```
 
-- 공통 설정: `config/settings.yaml`
-- 운영 덮어쓰기: `config/profiles/rockylinux9.yaml`
-- 로컬 UI 테스트: `config/profiles/local.yaml`
-- 자동 테스트: `config/profiles/test.yaml`
-- 완전히 별도 YAML 사용: `RAG_CONFIG_FILE=/etc/ecm-rag/settings.yaml`
+- 운영: `config/profiles/rockylinux9.yaml`
+- 폐쇄망 통합 테스트: `config/profiles/test.yaml`
+- 로컬 UI 개발: `config/profiles/local.yaml`
+- 외부 서비스 없는 자동 테스트: `config/profiles/unit-test.yaml`
+
+각 Profile은 다른 YAML과 병합하지 않는 완결 설정입니다. `.env` 값은 선택된 YAML이
+`${ENV_NAME}` 또는 `${ENV_NAME:-기본값}`으로 참조한 항목에만 적용됩니다.
+폐쇄망 `test` 환경의 `upload_root`, `artifact_root`, `web_root`는 `.env`가 아니라
+`config/profiles/test.yaml`에서 프로젝트 상대경로로 고정 관리합니다.
 
 프로세스가 시작될 때 설정을 읽어 캐시하므로 YAML이나 `.env` 변경 후 반드시 재시작합니다.
+
+기존 3단계 설정에서 전환하는 서버는 더 이상 읽지 않는 `config/settings.yaml`을
+삭제합니다. `.env`에 `RAG_CONFIG_FILE`이 있다면 해당 줄도 제거합니다. 업로드 원본,
+변환 산출물, PostgreSQL 데이터와 `config/profiles/*.yaml`은 삭제 대상이 아닙니다.
 
 ### 12.2 운영 `.env` 예시
 
@@ -538,10 +548,14 @@ chmod 600 .env
 ```dotenv
 RAG_PROFILE=rockylinux9
 RAG_DB_DSN=postgresql://raguser:비밀번호@DB주소:5432/ragdb
+RAG_UPLOAD_ROOT=/srv/ecm-rag/uploads
+RAG_ARTIFACT_ROOT=/srv/ecm-rag/processed
+RAG_WEB_ROOT=web
 
 RAG_AUTH_ENABLED=false
 RAG_AUTH_COMMAND=/srv/ecm-rag/bin/company-auth-wrapper
 RAG_DRM_COMMAND=/srv/ecm-rag/bin/decrypt-wrapper
+RAG_DRM_ENABLED=true
 RAG_JAVA_COMMAND=java
 RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
 
@@ -577,7 +591,7 @@ ECM_RAG_WORKER_PROCESSES=2
 
 | 키 | 의미 | 변경 시 주의사항 |
 |---|---|---|
-| `server.max_upload_mb` | 파일 1건 크기 제한 | HTML과 서버 모두 현재 5MiB |
+| `server.max_upload_mb` | 파일 1건 크기 제한 | HTML과 서버 모두 현재 10MiB |
 | `paths.upload_root` | 원본 파일 경로 | 기존 DB source_path와 함께 이전 |
 | `paths.artifact_root` | 변환 산출물 경로 | 디스크 사용량·백업 정책 확인 |
 | `database.vector.hnsw_ef_search` | vector 검색 정확도/비용 | 높을수록 느리고 recall 향상 |
@@ -752,8 +766,9 @@ JSON의 `include_chunks`를 생략하거나 `true`로 보내면 `results` 청크
 - 상세 업로드: `http://서버IP:8300/upload.html`
 - 로그인(인증 활성화 후): `http://서버IP:8300/login`
 - 검색/채팅: `http://서버IP:8300/search.html`
+- Markdown 문서 뷰어: 검색 결과의 `MD 보기`에서 새 화면으로 진입
 - 데이터 관리(RDB·pgvector): `http://서버IP:8300/admin.html`
-- Swagger: 운영 profile에서는 비활성, local/test profile에서 `/docs`
+- Swagger: 운영 profile에서는 비활성, local/test/unit-test profile에서 `/docs`
 
 업로드·검색 화면의 데이터 관리 메뉴는 `/api/v1/auth/me` 응답의 `roles`에 `admin`이
 포함된 경우에만 표시되며 `admin.html`로 이동합니다. 자산 삭제는 `assets.deleted_at`만
@@ -780,7 +795,7 @@ DB 직접 삭제는 감사 이력 보존 정책과 백업을 확정한 후 별�
 
 1. 임시 모드에서는 첫 화면에서 임시 사용자 표시를 확인합니다. 인증 활성화 후에는 Java
    인증으로 로그인합니다.
-2. 5MiB 이하 TXT 또는 DOCX를 먼저 업로드합니다.
+2. 10MiB 이하 TXT 또는 DOCX를 먼저 업로드합니다.
 3. 처리 단계가 `대기 → 준비 → DRM 확인 → 문서 분석 → 임베딩 → 저장 → 완료`로 바뀌는지
    확인합니다.
 4. 같은 파일을 다시 올려 `동일한 파일 내용` 후보가 표시되는지 확인합니다.
@@ -1064,8 +1079,8 @@ pg_dump "$RAG_DB_DSN" --format=custom --schema=rag --file=/안전경로/pre-upda
 
 | 순서 | 파일 | 역할과 디버깅 포인트 |
 |---:|---|---|
-| 1 | `config/settings.yaml` | 모든 기본값과 외부 연동 주소 |
-| 2 | `service/config.py` | 공통 YAML·profile·환경변수 병합 |
+| 1 | `config/profiles/*.yaml` | 환경별 완결 정책과 외부 연동 환경변수 참조 |
+| 2 | `service/config.py` | 단일 profile 선택·환경변수 치환·검증 |
 | 3 | `service/api.py` | router와 정적 화면 조립 |
 | 3-1 | `service/login.py` | JPype JVM 초기화, EAI Java VO 로그인, 사원정보 매핑 |
 | 4 | `service/routes/ingestion.py` | 업로드 검증, 중복 후보, job 접수 |
@@ -1157,7 +1172,7 @@ web/search.html 또는 내부 업무 시스템
 - [ ] 작은 TXT/DOCX 업로드 완료
 - [ ] PDF OCR 처리 완료
 - [ ] 중복 문서 확인창 시험
-- [ ] 검색 및 원문 다운로드 시험
+- [ ] 검색 및 원문·MD 다운로드 시험
 - [ ] 외부 PC에서 `/external/answer` 호출 성공
 - [ ] 8300 포트 허용 대역 제한 확인
 - [ ] DB·원본·산출물 백업과 복구 시험

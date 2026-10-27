@@ -579,6 +579,7 @@
         color: inherit;
         background: var(--surface);
         box-shadow: 0 10px 30px rgba(28, 39, 67, 0.045);
+        cursor: pointer;
         text-decoration: none;
         transition:
           transform 0.18s ease,
@@ -651,10 +652,38 @@
         margin-top: 15px;
         align-items: center;
         justify-content: flex-end;
-        gap: 6px;
-        color: var(--primary);
+        flex-wrap: wrap;
+        gap: 8px;
         font-size: 11px;
         font-weight: 800;
+      }
+
+      .result-card__download {
+        display: inline-flex;
+        min-height: 32px;
+        padding: 7px 10px;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: var(--primary);
+        background: var(--surface);
+        text-decoration: none;
+      }
+
+      .result-card__download:hover,
+      .result-card__download:focus-visible {
+        border-color: var(--primary);
+        outline: none;
+        background: var(--primary-soft);
+      }
+
+      .result-card__download.is-disabled {
+        border-color: var(--line);
+        color: var(--subtle);
+        background: var(--background);
+        cursor: not-allowed;
+        opacity: 0.65;
       }
 
       .result-card__content {
@@ -1131,13 +1160,26 @@
       }
 
       function createResultCard(result, index) {
-        const article = document.createElement("a");
+        const originalDownloadUrl = `/api/v1/assets/${encodeURIComponent(result.asset_id)}/versions/${encodeURIComponent(result.version_id)}/download`;
+        const markdownViewUrl = `/md_view.html?asset_id=${encodeURIComponent(result.asset_id)}&version_id=${encodeURIComponent(result.version_id)}`;
+        const article = document.createElement("article");
         article.className = "result-card";
-        article.href = `/api/v1/assets/${encodeURIComponent(result.asset_id)}/versions/${encodeURIComponent(result.version_id)}/download`;
+        article.tabIndex = 0;
+        article.setAttribute("role", "link");
         article.setAttribute(
           "aria-label",
           `${result.title || "문서"} 원문 다운로드`,
         );
+        article.addEventListener("click", (event) => {
+          if (event.target.closest("a, [aria-disabled='true']")) return;
+          window.location.assign(originalDownloadUrl);
+        });
+        article.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          if (event.target.closest("a, [aria-disabled='true']")) return;
+          event.preventDefault();
+          window.location.assign(originalDownloadUrl);
+        });
 
         const head = document.createElement("div");
         head.className = "result-card__head";
@@ -1167,8 +1209,38 @@
 
         const actions = document.createElement("div");
         actions.className = "result-card__actions";
-        actions.innerHTML =
-          '<span aria-hidden="true">⇩</span><span>검색 결과 클릭 시 원문 다운로드</span>';
+
+        const originalDownload = document.createElement("a");
+        originalDownload.className = "result-card__download";
+        originalDownload.href = originalDownloadUrl;
+        originalDownload.innerHTML =
+          '<span aria-hidden="true">⇩</span><span>원문 다운로드</span>';
+        originalDownload.setAttribute(
+          "aria-label",
+          `${result.title || "문서"} 원문 다운로드`,
+        );
+
+        const markdownView = document.createElement(
+          result.asset_type === "document" ? "a" : "span",
+        );
+        markdownView.className = "result-card__download";
+        markdownView.innerHTML =
+          '<span aria-hidden="true">↗</span><span>MD 뷰어</span>';
+        if (result.asset_type === "document") {
+          markdownView.href = markdownViewUrl;
+          markdownView.target = "_blank";
+          markdownView.rel = "noopener";
+          markdownView.setAttribute(
+            "aria-label",
+            `${result.title || "문서"} Markdown 새 화면에서 보기`,
+          );
+        } else {
+          markdownView.classList.add("is-disabled");
+          markdownView.setAttribute("aria-disabled", "true");
+          markdownView.title = "MD 뷰어는 문서 자산만 지원합니다.";
+        }
+
+        actions.append(originalDownload, markdownView);
 
         identity.append(title, meta);
         head.append(rank, identity, score);
