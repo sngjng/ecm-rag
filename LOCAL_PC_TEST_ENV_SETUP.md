@@ -257,7 +257,8 @@ uv pip install -r requirements-dev.txt
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
-python -c "import fastapi, psycopg, pgvector, yaml; print('service dependencies: OK')"
+python -c "import fastapi, psycopg, psycopg_pool, pgvector, yaml; print('service dependencies: OK')"
+python -c "from docx import Document; from pptx import Presentation; print('office parsers: OK')"
 ```
 
 핵심 API/DB 통합 테스트만 먼저 수행할 경우 Docling·OCR·모델 의존성 설치 시간이 길 수
@@ -682,6 +683,7 @@ Windows 브라우저에서 다음 주소를 엽니다.
 - 상세 업로드: `http://localhost:8300/upload.html`
 - 로그인 화면: 인증을 활성화한 경우 `http://localhost:8300/login`
 - 문서 조회·질의응답: `http://localhost:8300/search.html`
+- 장애 로그 해결 가이드: `http://localhost:8300/incident_guide.html`
 - API 문서: `http://localhost:8300/docs`
 
 현재 기본값에서는 로그인하지 않습니다. `/api/v1/auth/me`는 임시 사용자 정보를
@@ -707,6 +709,12 @@ Windows 브라우저에서 다음 주소를 엽니다.
 ```text
 queued → processing → completed
 ```
+
+장애 해결 화면과 템플릿 저장소는 `sql/007_incident_guide_template.sql`과
+`sql/008_incident_timestamp_template.sql`이 필요합니다.
+`bin/start.sh` 또는 `python -m scripts.apply_migrations`가 기존 DB에 이를 자동 적용합니다.
+인증 사용자는 로그 분석을 실행할 수 있고 관리자만 상단 공용 템플릿을 수정할 수 있습니다.
+분석에 사용한 PostgreSQL/pgvector 청크는 화면이나 API 응답에 표시되지 않습니다.
 
 검색 API 확인:
 
@@ -769,6 +777,14 @@ export RAG_EMBED_API_KEY='필요한경우만설정'
 export RAG_LLM_URL='http://LLM서버:8000/v1'
 export RAG_LLM_MODEL='실제모델명'
 export RAG_LLM_API_KEY='필요한경우만설정'
+export RAG_LLM_MAX_CONTINUATIONS='2'
+
+# 로그분석 AI에서 대량 로그 중 LLM에 전달할 핵심 오류 구간 문자 수
+export RAG_INCIDENT_LOG_CONTEXT_CHARACTERS='16000'
+
+# PPTX 포함 이미지 및 PDF EasyOCR 장치: cpu, gpu, auto
+export RAG_EASYOCR_DEVICE='cpu'
+export RAG_DOCLING_ARTIFACTS='/경로/docling-models'
 
 # service/login.py 구현·시험 후 활성화
 export RAG_AUTH_ENABLED=true
@@ -782,6 +798,8 @@ export RAG_CFR_JAR_PATH='/경로/cfr-0.152.jar'
 주의사항:
 
 - BGE-M3 응답은 PostgreSQL 스키마와 같은 1024차원이어야 합니다.
+- `RAG_EASYOCR_DEVICE=gpu`는 CUDA/MPS가 없으면 작업을 실패시킵니다. GPU worker마다
+  EasyOCR 모델을 별도로 적재하므로 GPU 메모리에 맞춰 worker 수를 조정합니다.
 - `test` profile은 쿠키 `Secure=false`라 HTTP 폐쇄망 테스트에만 사용합니다.
 - Rocky Linux 운영 profile은 HTTPS와 `Secure=true` 쿠키를 전제로 합니다.
 - 기본 로그인 구현 계약은 `LOGIN_INTEGRATION.md`를 따릅니다.

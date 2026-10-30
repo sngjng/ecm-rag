@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import Any
 
 import numpy as np
 
@@ -14,7 +15,6 @@ from retrieval.rrf import reciprocal_rank_fusion
 from service.config import get_settings
 from service.db import connect
 from service.embedding import embed
-
 
 TOKEN = re.compile(r"[\w.$/-]{3,}", re.UNICODE)
 STACK_FRAME = re.compile(
@@ -34,7 +34,9 @@ def _stack_frame_keys(query: str) -> list[tuple[str, list[str], list[str]]]:
         seen.add((qualified_class, method))
         package, _, class_part = qualified_class.rpartition(".")
         # 디컴파일 소스의 inner class 표현은 AST에 따라 Outer 또는 Inner로 저장될 수 있다.
-        class_names = list(dict.fromkeys((class_part, class_part.split("$")[0], class_part.split("$")[-1])))
+        class_names = list(dict.fromkeys(
+            (class_part, class_part.split("$")[0], class_part.split("$")[-1])
+        ))
         method_names = [method]
         if method in {"<init>", "<clinit>"}:
             method_names.extend(class_names)
@@ -103,6 +105,176 @@ def _filters(
     )
 
 
+def _stack_symbol_lanes(
+    conn: Any,
+    query: str,
+    filter_sql: str,
+    filter_values: tuple,
+    exact_top_k: int,
+) -> list[list[str]]:
+    """stack frame의 package/class/method로 소스 심볼 후보를 만든다."""
+    lanes: list[list[str]] = []
+    for package, class_names, method_names in _stack_frame_keys(query):
+        rows = conn.execute(
+            """SELECT c.chunk_id
+               FROM code_symbols s JOIN chunks c USING(chunk_id)
+               JOIN assets a ON a.asset_id=c.asset_id
+               JOIN asset_versions v ON v.version_id=c.version_id
+               WHERE s.package_name=%s
+                 AND s.class_name=ANY(%s)
+                 AND s.symbol_name=ANY(%s)"""
+            + filter_sql
+            + " ORDER BY c.created_at DESC LIMIT %s",
+            (package, class_names, method_names, *filter_values, exact_top_k),
+        ).fetchall()
+        lanes.append([row["chunk_id"] for row in rows])
+    return lanes
+
+
+def _identifier_lanes(
+    conn: Any,
+    query: str,
+    filter_sql: str,
+    filter_values: tuple,
+    exact_top_k: int,
+) -> list[list[str]]:
+    """에러코드·예외명·파일명과 연결된 청크 및 소스 심볼 후보를 만든다."""
+    lanes: list[list[str]] = []
+    identifiers = [
+        token for token in TOKEN.findall(query)
+        if any(char.isdigit() for char in token) or "." in token or token[0].isupper()
+    ]
+    for token in identifiers[:8]:
+        escaped = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = conn.execute(
+            """SELECT c.chunk_id
+               FROM chunks c JOIN assets a USING(asset_id)
+               JOIN asset_versions v USING(version_id)
+               WHERE (c.identifier = %s OR c.display_content ILIKE %s ESCAPE '\\')"""
+            + filter_sql + " ORDER BY c.created_at DESC LIMIT %s",
+            (token, f"%{escaped}%", *filter_values, exact_top_k),
+        ).fetchall()
+        lanes.append([row["chunk_id"] for row in rows])
+
+        # application stack frame만 거쳐 동일 심볼의 소스 청크를 별도 lane으로 올린다.
+        # psycopg client-side placeholder 규칙 때문에 SQL 리터럴의 %는 %%로 쓴다.
+        rows = conn.execute(
+            """SELECT DISTINCT c.chunk_id, c.created_at
+               FROM error_events e
+               JOIN stack_frames f ON f.error_event_id=e.error_event_id
+               JOIN code_symbols s
+                 ON s.symbol_name=f.method_name
+                AND (concat_ws('.', s.package_name, s.class_name)=f.class_name
+                     OR f.class_name LIKE concat_ws('.', s.package_name, s.class_name) || '$%%')
+               JOIN chunks c ON c.chunk_id=s.chunk_id
+               JOIN assets a ON a.asset_id=c.asset_id
+               JOIN asset_versions v ON v.version_id=c.version_id
+               WHERE f.is_application_code
+                 AND (e.error_code=%s OR e.exception_class=%s)"""
+            + filter_sql
+            + " ORDER BY c.created_at DESC LIMIT %s",
+            (token, token, *filter_values, exact_top_k),
+        ).fetchall()
+        lanes.append([row["chunk_id"] for row in rows])
+    return lanes
+
+
+def _lexical_lane(
+    conn: Any,
+    query: str,
+    filter_sql: str,
+    filter_values: tuple,
+    top_k: int,
+) -> list[str]:
+    rows = conn.execute(
+        """SELECT c.chunk_id
+           FROM chunks c JOIN assets a USING(asset_id)
+           JOIN asset_versions v USING(version_id)
+           WHERE c.search_vector @@ plainto_tsquery('simple', %s)"""
+        + filter_sql
+        + """ ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', %s)) DESC
+               LIMIT %s""",
+        (query, *filter_values, query, top_k),
+    ).fetchall()
+    return [row["chunk_id"] for row in rows]
+
+
+def _vector_lane(
+    conn: Any,
+    query_vector: np.ndarray,
+    filter_sql: str,
+    filter_values: tuple,
+    top_k: int,
+    max_distance: float,
+) -> tuple[list[str], dict[str, float]]:
+    rows = conn.execute(
+        """SELECT c.chunk_id, c.embedding <=> %s AS vector_distance
+           FROM chunks c JOIN assets a USING(asset_id)
+           JOIN asset_versions v USING(version_id)
+           WHERE c.embedding IS NOT NULL"""
+        + filter_sql + " ORDER BY vector_distance LIMIT %s",
+        (query_vector, *filter_values, top_k),
+    ).fetchall()
+    return _qualified_vector_ranking(rows, max_distance)
+
+
+def _fetch_candidates(conn: Any, ranked: list[str]) -> dict[str, dict]:
+    rows = conn.execute(
+        """SELECT c.chunk_id, c.display_content AS content, c.kind, c.identifier,
+                  c.page_start, c.page_end,
+                  c.line_start, c.line_end, c.heading_path, c.parent_id,
+                  c.previous_chunk_id, c.next_chunk_id, c.metadata,
+                  a.asset_id, a.asset_type, a.title, a.vendor, a.product, a.system_name,
+                  v.version_id, v.version_label, v.source_filename, v.lifecycle_status
+           FROM chunks c JOIN assets a USING(asset_id)
+           JOIN asset_versions v USING(version_id)
+           WHERE c.chunk_id = ANY(%s)""",
+        (ranked,),
+    ).fetchall()
+    return {row["chunk_id"]: row for row in rows}
+
+
+def _rerank_candidates(
+    query: str,
+    ranked: list[str],
+    by_id: dict[str, dict],
+    limit: int,
+    settings: Any,
+) -> tuple[list[str], dict[str, float]]:
+    """DB 연결을 보유하지 않은 상태에서 선택적 로컬 reranker를 실행한다."""
+    reranker = settings.models.reranker
+    if not reranker.enabled or not ranked:
+        return ranked, {}
+    reranked = get_reranker(reranker.model_path, reranker.use_fp16).rerank(
+        query,
+        [by_id[chunk_id]["content"] for chunk_id in ranked],
+        top_k=min(limit, reranker.top_k),
+    )
+    return (
+        [ranked[index] for index, _ in reranked],
+        {ranked[index]: score for index, score in reranked},
+    )
+
+
+def _fetch_neighbor_content(
+    conn: Any, by_id: dict[str, dict], selected: list[str]
+) -> dict[str, str]:
+    neighbor_ids: set[str] = set()
+    for chunk_id in selected:
+        row = by_id[chunk_id]
+        if row["previous_chunk_id"]:
+            neighbor_ids.add(row["previous_chunk_id"])
+        if row["next_chunk_id"]:
+            neighbor_ids.add(row["next_chunk_id"])
+    if not neighbor_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT chunk_id, display_content FROM chunks WHERE chunk_id=ANY(%s)",
+        (list(neighbor_ids),),
+    ).fetchall()
+    return {row["chunk_id"]: row["display_content"] for row in rows}
+
+
 def search(
     query: str,
     *,
@@ -121,158 +293,54 @@ def search(
     filter_sql, filter_values = _filters(
         asset_type, system_name, vendor, product, include_obsolete
     )
-    lanes: list[list[str]] = []
-
+    # 원격 embedding은 DB 연결을 대여하기 전에 끝낸다. 모델 서버 지연이 PostgreSQL
+    # connection 점유 시간으로 이어지지 않는다.
+    query_vector = np.asarray(embed([query])[0], dtype=np.float32)
     with connect() as conn:
         conn.execute(
             "SELECT set_config('hnsw.ef_search', %s, true)",
             (str(settings.database.vector.hnsw_ef_search),),
         )
-        # Lane 0: 질문에 Java stack trace가 있으면 code_symbols의 package/class/method를
-        # 직접 연결한다. 줄 번호가 달라져도 같은 디컴파일 심볼을 찾으며, 이 결과도 다른
-        # lexical/vector lane과 RRF로 결합되어 LLM 근거에 포함된다.
-        for package, class_names, method_names in _stack_frame_keys(query):
-            rows = conn.execute(
-                """SELECT c.chunk_id
-                   FROM code_symbols s JOIN chunks c USING(chunk_id)
-                   JOIN assets a ON a.asset_id=c.asset_id
-                   JOIN asset_versions v ON v.version_id=c.version_id
-                   WHERE s.package_name=%s
-                     AND s.class_name=ANY(%s)
-                     AND s.symbol_name=ANY(%s)"""
-                + filter_sql
-                + " ORDER BY c.created_at DESC LIMIT %s",
-                (
-                    package,
-                    class_names,
-                    method_names,
-                    *filter_values,
-                    retrieval.exact_top_k,
-                ),
-            ).fetchall()
-            lanes.append([row["chunk_id"] for row in rows])
-
-        # Lane 1: 에러코드, 예외명, 파일명, 클래스/메서드 같은 식별자는 exact 또는
-        # substring 검색을 우선한다. 자연어 단어 전부를 ILIKE로 검색하지 않도록 토큰을
-        # 숫자/점/대문자 특징으로 제한한다.
-        identifiers = [
-            token for token in TOKEN.findall(query)
-            if any(char.isdigit() for char in token) or "." in token or token[0].isupper()
-        ]
-        for token in identifiers[:8]:
-            escaped = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            rows = conn.execute(
-                """SELECT c.chunk_id
-                   FROM chunks c JOIN assets a USING(asset_id)
-                   JOIN asset_versions v USING(version_id)
-                   WHERE (c.identifier = %s OR c.display_content ILIKE %s ESCAPE '\\')"""
-                + filter_sql + " ORDER BY c.created_at DESC LIMIT %s",
-                (token, f"%{escaped}%", *filter_values, retrieval.exact_top_k),
-            ).fetchall()
-            lanes.append([row["chunk_id"] for row in rows])
-
-            # 오류 코드/예외명만 질문한 경우에도, 그 오류에 저장된 stack frame을 거쳐
-            # 동일 package/class/method의 소스(JAR 디컴파일 포함)를 별도 후보로 올린다.
-            # application frame만 사용해 JDK/Spring 내부 코드가 답변 근거를 점유하지 않게 한다.
-            # psycopg의 client-side placeholder 문법 때문에 SQL 리터럴의 퍼센트 문자는
-            # 두 번 써야 한다. 아래 '$%%'는 PostgreSQL에 '$%'로 전달되어 Java 내부
-            # 클래스 이름(예: Outer$Inner)도 일치시킨다. SQL 문자열 안에는 퍼센트가
-            # 들어간 설명 주석을 두지 않는다. psycopg가 주석까지 먼저 파싱하기 때문이다.
-            rows = conn.execute(
-                """SELECT DISTINCT c.chunk_id, c.created_at
-                   FROM error_events e
-                   JOIN stack_frames f ON f.error_event_id=e.error_event_id
-                    JOIN code_symbols s
-                      ON s.symbol_name=f.method_name
-                     AND (concat_ws('.', s.package_name, s.class_name)=f.class_name
-                          OR f.class_name LIKE concat_ws('.', s.package_name, s.class_name) || '$%%')
-                   JOIN chunks c ON c.chunk_id=s.chunk_id
-                   JOIN assets a ON a.asset_id=c.asset_id
-                   JOIN asset_versions v ON v.version_id=c.version_id
-                   WHERE f.is_application_code
-                     AND (e.error_code=%s OR e.exception_class=%s)"""
-                + filter_sql
-                + " ORDER BY c.created_at DESC LIMIT %s",
-                (token, token, *filter_values, retrieval.exact_top_k),
-            ).fetchall()
-            lanes.append([row["chunk_id"] for row in rows])
-
-        # Lane 2: PostgreSQL generated tsvector를 이용한 lexical full-text search.
-        rows = conn.execute(
-            """SELECT c.chunk_id
-               FROM chunks c JOIN assets a USING(asset_id)
-               JOIN asset_versions v USING(version_id)
-               WHERE c.search_vector @@ plainto_tsquery('simple', %s)"""
-            + filter_sql
-            + """ ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', %s)) DESC
-                   LIMIT %s""",
-            (query, *filter_values, query, retrieval.lexical_top_k),
-        ).fetchall()
-        lanes.append([row["chunk_id"] for row in rows])
-
-        # Lane 3: 질의를 문서 청크와 같은 embedding 모델로 변환한 cosine 근접 검색.
-        query_vector = np.asarray(embed([query])[0], dtype=np.float32)
-        rows = conn.execute(
-            """SELECT c.chunk_id, c.embedding <=> %s AS vector_distance
-               FROM chunks c JOIN assets a USING(asset_id)
-               JOIN asset_versions v USING(version_id)
-               WHERE c.embedding IS NOT NULL"""
-            + filter_sql + " ORDER BY vector_distance LIMIT %s",
-            (query_vector, *filter_values, retrieval.vector_top_k),
-        ).fetchall()
-        vector_ranking, vector_distances = _qualified_vector_ranking(
-            rows, retrieval.max_vector_distance
+        lanes = _stack_symbol_lanes(
+            conn, query, filter_sql, filter_values, retrieval.exact_top_k
+        )
+        lanes.extend(_identifier_lanes(
+            conn, query, filter_sql, filter_values, retrieval.exact_top_k
+        ))
+        lanes.append(_lexical_lane(
+            conn, query, filter_sql, filter_values, retrieval.lexical_top_k
+        ))
+        vector_ranking, vector_distances = _vector_lane(
+            conn,
+            query_vector,
+            filter_sql,
+            filter_values,
+            retrieval.vector_top_k,
+            retrieval.max_vector_distance,
         )
         lanes.append(vector_ranking)
 
-        # 점수 단위가 서로 다른 세 lane을 직접 더하지 않고 순위 기반 RRF로 결합한다.
-        fused = reciprocal_rank_fusion(lanes, k=retrieval.rrf_k)
-        rrf_scores = dict(fused)
-        ranked = [chunk_id for chunk_id, _ in fused[:retrieval.fusion_top_k]]
-        if not ranked:
-            return []
-        found = conn.execute(
-            """SELECT c.chunk_id, c.display_content AS content, c.kind, c.page_start, c.page_end,
-                      c.line_start, c.line_end, c.heading_path, c.parent_id,
-                      c.previous_chunk_id, c.next_chunk_id, c.metadata,
-                      a.asset_id, a.asset_type, a.title, a.vendor, a.product, a.system_name,
-                      v.version_id, v.version_label, v.source_filename, v.lifecycle_status
-               FROM chunks c JOIN assets a USING(asset_id)
-               JOIN asset_versions v USING(version_id)
-               WHERE c.chunk_id = ANY(%s)""",
-            (ranked,),
-        ).fetchall()
+    # 서로 다른 점수 단위를 순위 기반 RRF로 결합한다.
+    fused = reciprocal_rank_fusion(lanes, k=retrieval.rrf_k)
+    rrf_scores = dict(fused)
+    ranked = [chunk_id for chunk_id, _ in fused[:retrieval.fusion_top_k]]
+    if not ranked:
+        return []
 
-        by_id = {row["chunk_id"]: row for row in found}
-        ranked = [chunk_id for chunk_id in ranked if chunk_id in by_id]
-        rerank_scores: dict[str, float] = {}
-        reranker = settings.models.reranker
-        # reranker는 후보 축소 후에만 실행해 모델 비용을 제한한다.
-        if reranker.enabled and ranked:
-            reranked = get_reranker(reranker.model_path, reranker.use_fp16).rerank(
-                query, [by_id[chunk_id]["content"] for chunk_id in ranked],
-                top_k=min(limit, reranker.top_k),
-            )
-            rerank_scores = {ranked[index]: score for index, score in reranked}
-            ranked = [ranked[index] for index, _ in reranked]
+    with connect() as conn:
+        by_id = _fetch_candidates(conn, ranked)
+    ranked = [chunk_id for chunk_id in ranked if chunk_id in by_id]
 
-        selected = ranked[:limit]
-        neighbor_ids: set[str] = set()
-        # 선택 청크의 앞뒤 문맥은 검색 순위에는 영향을 주지 않고 응답 근거로만 붙인다.
-        if retrieval.expand_neighbors:
-            for chunk_id in selected:
-                row = by_id[chunk_id]
-                if row["previous_chunk_id"]:
-                    neighbor_ids.add(row["previous_chunk_id"])
-                if row["next_chunk_id"]:
-                    neighbor_ids.add(row["next_chunk_id"])
-        neighbors = {}
-        if neighbor_ids:
-            neighbor_rows = conn.execute(
-                "SELECT chunk_id, display_content FROM chunks WHERE chunk_id=ANY(%s)",
-                (list(neighbor_ids),),
-            ).fetchall()
-            neighbors = {row["chunk_id"]: row["display_content"] for row in neighbor_rows}
+    # 로컬 reranker도 DB connection을 반환한 후 실행한다.
+    ranked, rerank_scores = _rerank_candidates(
+        query, ranked, by_id, limit, settings
+    )
+    selected = ranked[:limit]
+
+    neighbors: dict[str, str] = {}
+    if retrieval.expand_neighbors and selected:
+        with connect() as conn:
+            neighbors = _fetch_neighbor_content(conn, by_id, selected)
 
     results = []
     for chunk_id in selected:

@@ -12,9 +12,9 @@ import os
 import socket
 import threading
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from collections.abc import Callable
 
 from service.config import get_settings
 from service.drm import decrypt
@@ -22,10 +22,16 @@ from service.embedding import embed
 from service.jar_parser import parse_jar
 from service.logging_setup import configure_logging
 from service.parsers import (
-    Item, parse_code, parse_docx, parse_incident, parse_logs, parse_pdf, parse_text,
+    Item,
+    parse_code,
+    parse_docx,
+    parse_incident,
+    parse_logs,
+    parse_pdf,
+    parse_pptx,
+    parse_text,
 )
 from service.repositories import jobs
-
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +95,8 @@ def _parse(
     suffix = source.suffix.lower()
     if asset_type == "document" and suffix == ".docx":
         return parse_docx(source)
+    if asset_type == "document" and suffix == ".pptx":
+        return parse_pptx(source, output)
     if asset_type == "document" and suffix == ".pdf":
         docling = get_settings().solutions.docling
         if docling.require_local_artifacts and not docling.artifacts_path:

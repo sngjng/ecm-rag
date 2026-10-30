@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 
 from service.config import get_settings
+from service.http_client import RETRYABLE_STATUS_CODES, get_http_client, sleep_before_retry
 from service.schemas import ChatHistoryMessage
-
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,8 @@ def _build_messages(
     *,
     context_limit: int | None = None,
     include_history: bool = True,
+    system_prompt: str = SYSTEM_PROMPT,
+    additional_fixed_characters: int = 0,
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """모델 context window 안에서 대화 이력과 검색 근거의 문자 예산을 계산한다.
 
@@ -111,8 +113,17 @@ def _build_messages(
     )
     # role/JSON framing은 prompt_safety_tokens가 흡수하고, 여기서는 실제 content 문자만
     # 계산한다. 질문과 system prompt는 절대 제거하지 않는다.
-    fixed_characters = len(SYSTEM_PROMPT) + len(query) + 80
+    fixed_characters = (
+        len(system_prompt) + len(query) + additional_fixed_characters + 80
+    )
     remaining = max(0, prompt_characters - fixed_characters)
+    if additional_fixed_characters > 0 and remaining <= 0:
+        logger.warning(
+            "LLM continuation context budget exhausted; "
+            "sending without RAG evidence additional_fixed=%d prompt_chars=%d",
+            additional_fixed_characters,
+            prompt_characters,
+        )
     history_budget = min(
         settings.max_history_characters if include_history else 0,
         remaining // 4,
@@ -124,7 +135,7 @@ def _build_messages(
         max(0, remaining - history_characters),
     )
     context = _format_context(results, context_budget)
-    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
     messages.append({
         "role": "user",
@@ -150,6 +161,8 @@ def generate_answer(
     query: str,
     results: list[dict[str, Any]],
     history: list[ChatHistoryMessage],
+    *,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> str:
     """검색 결과와 최근 대화를 로컬 OpenAI 호환 LLM에 전달한다."""
     settings = get_settings().models.llm
@@ -158,7 +171,9 @@ def generate_answer(
     if not settings.base_url.strip():
         raise LlmGenerationError("LLM 서버 주소가 설정되지 않았습니다")
 
-    messages, budget = _build_messages(query, results, history, settings)
+    messages, budget = _build_messages(
+        query, results, history, settings, system_prompt=system_prompt
+    )
     logger.info(
         "LLM request budget model=%s prompt_chars=%d context_chars=%d history_chars=%d",
         settings.model,
@@ -167,12 +182,17 @@ def generate_answer(
         budget["history_characters"],
     )
 
-    headers = {"Content-Type": "application/json"}
-    if settings.api_key:
-        headers["Authorization"] = f"Bearer {settings.api_key}"
+    client = get_http_client(
+        "llm",
+        settings.timeout_seconds,
+        settings.api_key,
+        settings.http_max_connections,
+        settings.http_max_keepalive_connections,
+    )
     try:
-        with httpx.Client(timeout=settings.timeout_seconds, headers=headers) as client:
-            for attempt in range(2):
+        context_retry_used = False
+        for attempt in range(1, settings.max_attempts + 1):
+            try:
                 response = client.post(
                     _chat_completions_url(settings.base_url),
                     json={
@@ -183,30 +203,156 @@ def generate_answer(
                         "stream": False,
                     },
                 )
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPStatusError:
-                    if attempt == 0 and _is_context_size_error(response):
-                        retry_limit = max(1000, budget["context_characters"] // 2)
-                        messages, budget = _build_messages(
-                            query,
-                            results,
-                            history,
-                            settings,
-                            context_limit=retry_limit,
-                            include_history=False,
-                        )
-                        logger.warning(
-                            "LLM context exceeded; retrying without history context_chars=%d",
-                            budget["context_characters"],
-                        )
-                        continue
+            except httpx.TransportError as exc:
+                if attempt >= settings.max_attempts:
                     raise
-                payload = response.json()
-                break
-        answer = payload["choices"][0]["message"]["content"]
+                logger.warning(
+                    "LLM request retry error=%s attempt=%d/%d",
+                    type(exc).__name__,
+                    attempt,
+                    settings.max_attempts,
+                )
+                sleep_before_retry(
+                    attempt,
+                    settings.retry_backoff_seconds,
+                    settings.retry_max_backoff_seconds,
+                )
+                continue
+
+            if (
+                _is_context_size_error(response)
+                and not context_retry_used
+                and attempt < settings.max_attempts
+            ):
+                context_retry_used = True
+                retry_limit = max(1000, budget["context_characters"] // 2)
+                messages, budget = _build_messages(
+                    query,
+                    results,
+                    history,
+                    settings,
+                    context_limit=retry_limit,
+                    include_history=False,
+                    system_prompt=system_prompt,
+                )
+                logger.warning(
+                    "LLM context exceeded; retrying without history context_chars=%d",
+                    budget["context_characters"],
+                )
+                continue
+
+            if (
+                response.status_code in RETRYABLE_STATUS_CODES
+                and attempt < settings.max_attempts
+            ):
+                logger.warning(
+                    "LLM request retry status=%s attempt=%d/%d",
+                    response.status_code,
+                    attempt,
+                    settings.max_attempts,
+                )
+                sleep_before_retry(
+                    attempt,
+                    settings.retry_backoff_seconds,
+                    settings.retry_max_backoff_seconds,
+                    response,
+                )
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            break
+        choice = payload["choices"][0]
+        answer = choice["message"]["content"]
         if not isinstance(answer, str) or not answer.strip():
             raise KeyError("empty answer")
+        finish_reason = str(choice.get("finish_reason") or "").lower()
+        continuation_count = 0
+        while (
+            finish_reason in {"length", "max_tokens"}
+            and continuation_count < settings.max_continuation_attempts
+        ):
+            continuation_count += 1
+            # 누적 답변 전체가 아니라 마지막 문맥만 보내 모델의 입력 한도를 보호한다.
+            # 완성된 반환값에는 기존 answer가 그대로 유지되고 새 출력만 이어 붙는다.
+            answer_tail = answer[-settings.continuation_tail_characters :]
+            desired_context_limit = max(
+                settings.continuation_min_context_characters,
+                budget["context_characters"] // 2,
+            )
+            continuation_messages, continuation_budget = _build_messages(
+                query,
+                results,
+                history,
+                settings,
+                context_limit=desired_context_limit,
+                include_history=False,
+                system_prompt=system_prompt,
+                additional_fixed_characters=len(answer_tail) + 300,
+            )
+            continuation_messages.extend([
+                {
+                    "role": "assistant",
+                    "content": (
+                        "[직전 답변의 마지막 부분]\n" + answer_tail
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "직전 답변이 출력 길이 한도에서 중단되었습니다. 이미 작성한 내용을 "
+                        "반복하지 말고 중단된 지점부터 이어서 남은 항목을 완성하세요."
+                    ),
+                },
+            ])
+            logger.warning(
+                "LLM output truncated; continuing attempt=%d/%d "
+                "context_chars=%d answer_chars=%d tail_chars=%d",
+                continuation_count,
+                settings.max_continuation_attempts,
+                continuation_budget["context_characters"],
+                len(answer),
+                len(answer_tail),
+            )
+            try:
+                continuation_response = client.post(
+                    _chat_completions_url(settings.base_url),
+                    json={
+                        "model": settings.model,
+                        "messages": continuation_messages,
+                        "temperature": settings.temperature,
+                        "max_tokens": settings.max_tokens,
+                        "stream": False,
+                    },
+                )
+                continuation_response.raise_for_status()
+                continuation_choice = continuation_response.json()["choices"][0]
+                continuation = continuation_choice["message"]["content"]
+                if not isinstance(continuation, str) or not continuation.strip():
+                    break
+                answer = f"{answer.rstrip()}\n{continuation.lstrip()}"
+                finish_reason = str(
+                    continuation_choice.get("finish_reason") or ""
+                ).lower()
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "LLM continuation failed attempt=%d error=%s",
+                    continuation_count,
+                    type(exc).__name__,
+                )
+                break
+        if finish_reason in {"length", "max_tokens"}:
+            logger.error(
+                "LLM output remains truncated after continuations attempts=%d "
+                "answer_chars=%d",
+                continuation_count,
+                len(answer),
+            )
+            answer = (
+                f"{answer.rstrip()}\n\n"
+                "※ 답변이 모델의 최대 출력 한도에 도달했습니다. 질문 범위를 나누어 "
+                "추가 분석을 요청해 주세요."
+            )
         return answer.strip()
     except httpx.HTTPStatusError as exc:
         # OpenAI 호환 서버(Ollama/vLLM)는 모델 미존재, context 초과, 지원하지 않는

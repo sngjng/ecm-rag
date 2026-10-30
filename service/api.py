@@ -9,10 +9,20 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
 from service.config import get_settings
 from service.dependencies import authorize, authorize_admin, authorize_uploader
-from service.routes import admin, assets, auth, chat, external, ingestion, search, system
-
+from service.routes import (
+    admin,
+    assets,
+    auth,
+    chat,
+    external,
+    incident_guide,
+    ingestion,
+    search,
+    system,
+)
 
 # get_settings()는 프로세스 안에서 캐시된다. 운영 중 profile이 임의로 바뀌지 않게 하고,
 # 테스트에서 환경 변수를 바꿀 때만 reload_settings()를 사용한다.
@@ -29,6 +39,7 @@ app.include_router(assets.router, prefix=settings.server.api_prefix)
 app.include_router(ingestion.router, prefix=settings.server.api_prefix)
 app.include_router(search.router, prefix=settings.server.api_prefix)
 app.include_router(chat.router, prefix=settings.server.api_prefix)
+app.include_router(incident_guide.router, prefix=settings.server.api_prefix)
 app.include_router(admin.router, prefix=settings.server.api_prefix)
 # external router만 의도적으로 로그인 dependency가 없다. 내부망 전용이라는 배포 전제를
 # 바꾸는 경우 이 줄을 그대로 공개하지 말고 인증 gateway/API key 계층을 먼저 추가한다.
@@ -88,6 +99,12 @@ def simplified_upload_page(request: Request):
 def search_page(request: Request):
     """인증 사용자가 문서자산을 자연어로 조회하는 화면을 반환한다."""
     return _guarded_page(request, "search.html", authorize)
+
+
+@app.get("/incident_guide.html", include_in_schema=False)
+def incident_guide_page(request: Request):
+    """인증 사용자가 장애 로그 해결 가이드를 생성하는 화면을 반환한다."""
+    return _guarded_page(request, "incident_guide.html", authorize)
 
 
 @app.get("/md_view.html", include_in_schema=False)

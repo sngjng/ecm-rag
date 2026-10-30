@@ -1,7 +1,7 @@
-"""기존 PostgreSQL DB에 로그인 세션·업로드 감사 이력 migration을 적용한다.
+"""기존 PostgreSQL DB에 002 이후의 증분 migration을 순서대로 적용한다.
 
-001 기본 스키마가 이미 적용된 DB를 대상으로 하며 002 SQL은 IF NOT EXISTS로 작성되어
-반복 실행해도 안전하다. DSN은 YAML/환경변수 설정 로더에서 읽고 화면에 출력하지 않는다.
+001 기본 스키마가 이미 적용된 DB를 대상으로 하며 각 SQL은 반복 실행해도 안전하게
+작성한다. DSN은 YAML/환경변수 설정 로더에서 읽고 화면에 출력하지 않는다.
 """
 from __future__ import annotations
 
@@ -14,13 +14,14 @@ from psycopg.errors import UndefinedTable
 from service.config import ROOT
 from service.db import connect
 
-
 MIGRATIONS = (
     ROOT / "sql" / "002_session_auth_audit.sql",
     ROOT / "sql" / "003_code_symbol_stack_lookup.sql",
     ROOT / "sql" / "004_eai_login_identity.sql",
     ROOT / "sql" / "005_user_access_roles.sql",
     ROOT / "sql" / "006_rename_general_role_to_viewer.sql",
+    ROOT / "sql" / "007_incident_guide_template.sql",
+    ROOT / "sql" / "008_incident_timestamp_template.sql",
 )
 
 

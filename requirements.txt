@@ -6,6 +6,7 @@
 # Document parsing / OCR
 docling==2.118.1
 python-docx==1.2.0
+python-pptx==1.0.2
 easyocr==1.7.2
 rapidocr==3.9.2
 onnxruntime==1.25.0
@@ -40,6 +41,7 @@ jpype1==1.7.1
 
 # PostgreSQL 전환 신규 의존성: 운영 pip list에 없으므로 현재 검증 버전을 고정한다.
 psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
 pgvector==0.5.0
 
 # Java symbol parsing

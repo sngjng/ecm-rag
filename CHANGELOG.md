@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- 인증 사용자용 `incident_guide.html`을 추가해 최대 1,000,000자의 장애 로그에서 오류 코드,
+  예외, 최하위 원인과 애플리케이션 호출 프레임을 추출하고 PostgreSQL/pgvector 내부 검색과
+  LLM을 결합한 해결 가이드를 생성; 조회 청크는 화면/API 응답에서 숨기고 관리자만 수정할
+  수 있는 공용 답변 템플릿과 `007_incident_guide_template.sql` migration 추가; 자연어 질문
+  단독 요청을 지원하고 템플릿 제목·순서 검증, 1회 재생성 및 서버 형식 보정 적용;
+  화면명을 로그분석 AI로 변경하고 오류별 타임스탬프와 내부 RAG 교차 검증 적용;
+  stack frame을 호출자→오류 메서드→예외 전파 순서로 재구성하고 RAG 소스 심볼 일치 여부를
+  표시하는 메서드 흐름 도식, 출력 길이 도달 시 이어쓰기 및
+  `008_incident_timestamp_template.sql` migration 제공
+- 일반 문서에 PPTX 업로드를 추가하고 슬라이드별 제목·본문·표·발표자 노트 및 포함
+  이미지의 EasyOCR 결과를 검색 청크와 Markdown으로 변환; EasyOCR 장치를
+  `cpu/gpu/auto`로 선택해 원문 다운로드·MD 보기·pgvector 검색에 연결
+- PostgreSQL 요청별 신규 연결을 프로세스별 동기 connection pool로 전환하고, pool 반환 전
+  업로드 advisory lock을 명시적으로 해제하도록 보강
+- hybrid 검색을 stack/identifier/FTS/vector lane, 후보 조회, rerank, 인접 문맥 단계로
+  분리하고 embedding·reranker 실행 중에는 DB 연결을 점유하지 않도록 변경
+- LLM·embedding API에 프로세스별 HTTP keep-alive client 재사용과 timeout·연결 오류,
+  HTTP 408/429/5xx 대상 제한된 지수 backoff 재시도 적용
 - 설정을 `.env + 단일 완결형 Profile YAML` 2단계로 단순화하고 공통
   `config/settings.yaml`과 deep-merge를 제거; `test`는 실제 폐쇄망 모델 연동용으로
   전환하고 외부 서비스 없는 자동화 설정은 `unit-test` profile로 분리; 기존 테스트

@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+import sys
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 from uuid import UUID, uuid4
@@ -12,36 +15,58 @@ from uuid import UUID, uuid4
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from service.db import connect
+from service.db import connect, connection_lease
 from service.schemas import AssetCreate, AssetUpdate, RelationCreate
 
 
-def try_acquire_upload_lock(sha256: str):
+@dataclass
+class UploadLock:
+    """session advisory lock과 그 연결의 pool lease를 함께 보관한다."""
+
+    connection: Any
+    lease: AbstractContextManager
+    lock_key: int
+
+
+def try_acquire_upload_lock(sha256: str) -> UploadLock | None:
     """같은 원본 해시에 대한 동시 등록을 PostgreSQL session lock으로 직렬화한다.
 
     대기하지 않는 try-lock을 사용하므로 동일 파일 요청이 몰려도 API worker가 잠긴 채
-    쌓이지 않는다. 반환된 connection은 반드시 ``release_upload_lock``으로 닫아야 한다.
+    쌓이지 않는다. 반환된 lock은 반드시 ``release_upload_lock``으로 해제해야 한다.
     """
     lock_key = int(sha256[:16], 16)
     if lock_key >= 2**63:
         lock_key -= 2**64
-    conn = connect()
+    lease = connection_lease()
+    conn = lease.__enter__()
     try:
         acquired = conn.execute(
             "SELECT pg_try_advisory_lock(%s) AS acquired", (lock_key,)
         ).fetchone()["acquired"]
         if not acquired:
-            conn.close()
+            lease.__exit__(None, None, None)
             return None
-        return conn
+        return UploadLock(connection=conn, lease=lease, lock_key=lock_key)
     except Exception:
-        conn.close()
+        lease.__exit__(*sys.exc_info())
         raise
 
 
-def release_upload_lock(connection) -> None:
-    """원본 해시 등록 lock을 connection 종료로 확실히 해제한다."""
-    connection.close()
+def release_upload_lock(upload_lock: UploadLock) -> None:
+    """advisory lock을 명시 해제한 뒤 연결을 풀에 안전하게 반환한다.
+
+    pooled connection의 ``close()``는 물리 세션 종료를 보장하지 않으므로, 예전처럼
+    연결 종료에 기대면 다음 대여자에게 session lock이 남을 수 있다.
+    """
+    try:
+        upload_lock.connection.execute(
+            "SELECT pg_advisory_unlock(%s)", (upload_lock.lock_key,)
+        )
+    except Exception:
+        upload_lock.lease.__exit__(*sys.exc_info())
+        raise
+    else:
+        upload_lock.lease.__exit__(None, None, None)
 
 
 def create_asset(payload: AssetCreate) -> dict[str, Any]:

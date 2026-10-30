@@ -7,18 +7,22 @@ PostgreSQL 테이블과 worker 처리로 연결되는지 설명합니다. 화면
 다음 파일을 함께 비교하기 위한 기준 문서입니다.
 
 - 화면: `web/login.html`, `web/spl_upload.html`, `web/upload.html`, `web/search.html`,
-  `web/admin.html`
+  `web/incident_guide.html`, `web/admin.html`
 - API 조립: `service/api.py`
 - 업로드/상태 API: `service/routes/ingestion.py`
 - 자산 API: `service/routes/assets.py`
 - 검색 API: `service/routes/search.py`
 - 채팅/외부 API: `service/routes/chat.py`, `service/routes/external.py`
+- 장애 해결 API: `service/routes/incident_guide.py`, `service/incident_guidance.py`,
+  `service/log_guidance.py`
 - 관리자 API: `service/routes/admin.py`, `service/repositories/admin.py`
 - DB repository: `service/repositories/assets.py`, `service/repositories/jobs.py`
 - 비동기 처리: `service/worker.py`
 - 검색 처리: `service/search.py`
 - 공통 답변/스택트레이스 분석: `service/answering.py`, `service/stacktrace.py`
 - DB 스키마: `sql/001_pgvector.sql`
+- 장애 해결 템플릿 migration: `sql/007_incident_guide_template.sql`,
+  `sql/008_incident_timestamp_template.sql`
 
 RAG는 ECM 문서를 자산화한 뒤 찾고 재사용하기 위한 검색 계층입니다. 화면의 주 업무는
 보험약관 질의응답이 아니라 ECM 자산의 원본, 버전, 메타데이터와 처리 이력을 등록하는
@@ -379,6 +383,20 @@ JSON 요청의 `include_chunks`는 응답에 검색 근거를 포함할지 결�
 내부 LLM 문맥으로는 동일하게 사용하지만 응답의 `results`를 제거하고
 `chunks_included=false`를 반환합니다. `generation_status`, `notices`, 스택트레이스 분석은
 두 방식 모두 유지됩니다.
+
+### 6.1 장애 로그 해결 가이드
+
+`incident_guide.html`은 `POST /api/v1/incident-guide/analyze`에 최대 1,000,000자의
+`log_text`, 선택 질문, 최근 대화와 검색 제한을 보냅니다. `service/log_guidance.py`가 오류
+의심 행 주변, 오류 코드, 예외, 최하위 원인과 애플리케이션 프레임을 추출하고
+`service/search.py`가 관련 문서·로그·Java 심볼을 검색합니다. 입력 로그의 핵심 구간과
+검색 결과는 `service/incident_guidance.py`에서 관리자 템플릿과 함께 LLM 문맥으로만
+조립됩니다.
+
+응답은 `answer`, `generation_status`, 입력 로그의 구조화 `analysis`, 디컴파일 안내
+`notices`와 화면 도식용 `diagram`을 포함합니다. 검색 결과 배열, 청크 원문, 내부 문서명과 순위는 화면/API에
+반환하지 않습니다. `GET /api/v1/incident-guide/template`은 인증 사용자가 읽을 수 있고,
+`PUT`은 `authorize_admin`을 통과한 관리자만 사용할 수 있습니다.
 
 ## 7. 유형별 worker 처리
 

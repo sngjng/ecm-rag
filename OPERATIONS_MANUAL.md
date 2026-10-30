@@ -13,7 +13,7 @@
 - Python: 3.11
 - API/UI: FastAPI + 정적 HTML/JavaScript
 - DB: PostgreSQL 17 + `pgvector` + `pg_trgm`
-- 문서 처리: Docling 2.118.1, python-docx 1.2.0, EasyOCR 1.7.2
+- 문서 처리: Docling 2.118.1, python-docx 1.2.0, python-pptx 1.0.2, EasyOCR 1.7.2
 - 임베딩: OpenAI 호환 BGE-M3 API
 - 답변 생성: OpenAI 호환 사내 LLM API
 - 인증: 기본 비활성, FastAPI → JPype `service/login.py` → 사내 EAI Java VO
@@ -40,7 +40,7 @@ flowchart LR
     API -->|Asset·Version·Job| DB[(PostgreSQL 17)]
     Worker[Python ingestion worker] -->|Job claim·heartbeat| DB
     Worker --> DRM[Java DRM wrapper]
-    Worker --> Parser[Docling·EasyOCR·python-docx]
+    Worker --> Parser[Docling·EasyOCR·python-docx·python-pptx]
     Worker --> Embed[BGE-M3 :8200]
     Worker -->|Chunk·Vector 저장| DB
     API -->|Hybrid 검색| DB
@@ -234,11 +234,13 @@ python -m pip install -r requirements-dev.txt
 | pydantic | 2.13.3 | API/YAML 설정 모델 검증 |
 | PyYAML | 6.0.3 | 공통·profile 설정 로딩 |
 | psycopg[binary] | 3.3.6 | PostgreSQL 트랜잭션과 SQL 실행 |
+| psycopg-pool | 3.3.3 | 프로세스별 PostgreSQL 동기 연결 풀 |
 | pgvector | 0.5.0 | Python/NumPy vector 타입 연결 |
 | httpx | 0.28.1 | 임베딩·LLM HTTP 호출 |
 | JPype1 | 1.7.1 | FastAPI 프로세스에서 사내 EAI Java VO 호출 |
 | docling | 2.118.1 | PDF 구조·표·본문 변환 |
 | python-docx | 1.2.0 | DOCX 문단·표 처리 |
+| python-pptx | 1.0.2 | PPTX 슬라이드 제목·본문·표·발표자 노트 처리 |
 | easyocr | 1.7.2 | 현재 선택된 OCR 엔진 |
 | rapidocr | 3.9.2 | 설치 호환성 유지, 현재 비활성 |
 | onnxruntime | 1.25.0 | RapidOCR 실행 기반, 현재 선택하지 않음 |
@@ -324,7 +326,7 @@ psql "$RAG_DB_DSN" -v ON_ERROR_STOP=1 \
 ```
 
 `bin/start.sh`는 증분 migration `002_session_auth_audit.sql`부터
-`006_rename_general_role_to_viewer.sql`까지 매번 안전하게 확인하지만, 신규 DB의
+`008_incident_timestamp_template.sql`까지 매번 안전하게 확인하지만, 신규 DB의
 `001_pgvector.sql`은 자동 생성하지 않습니다.
 
 검증:
@@ -495,6 +497,7 @@ Asset/Version을 만들지 않고 기존 job의 시도 횟수와 오류 상태�
 solutions:
   document_parser: docling
   ocr: easyocr
+  easyocr_device: "${RAG_EASYOCR_DEVICE:-cpu}"
   easyocr_languages: [ko, en]
   docling:
     artifacts_path: "${RAG_DOCLING_ARTIFACTS:-}"
@@ -505,7 +508,20 @@ solutions:
 
 운영 profile에서는 `require_local_artifacts=true`이므로
 `RAG_DOCLING_ARTIFACTS`가 비어 있으면 PDF 작업이 실패합니다. EasyOCR weight도 실행
-계정의 `~/.EasyOCR/model` 아래에 준비되어 있어야 합니다.
+계정의 `~/.EasyOCR/model` 또는
+`${RAG_DOCLING_ARTIFACTS}/EasyOcr` 아래에 준비되어 있어야 합니다. PPTX는 텍스트
+도형·표뿐 아니라 포함된 raster 이미지를 메모리에서 EasyOCR로 인식하고, 결과를
+`content_source=image_ocr` 청크와 변환 Markdown에 저장합니다.
+
+`RAG_EASYOCR_DEVICE`는 다음 중 하나입니다.
+
+- `cpu`: GPU를 사용하지 않습니다. GPU가 없는 테스트 서버의 안전한 기본값입니다.
+- `gpu`: CUDA 또는 MPS가 없으면 작업을 실패시켜 CPU fallback을 숨기지 않습니다.
+- `auto`: CUDA, MPS, CPU 순으로 사용 가능한 장치를 자동 선택합니다.
+
+각 문서 worker 프로세스가 EasyOCR 모델을 별도로 적재합니다. GPU 모드에서 worker 수를
+늘리면 GPU 메모리도 프로세스 수만큼 증가할 수 있으므로 `ECM_RAG_WORKER_PROCESSES`를
+GPU 메모리에 맞춰 조정합니다.
 
 ## 12. 환경 설정 파일
 
@@ -558,6 +574,7 @@ RAG_DRM_COMMAND=/srv/ecm-rag/bin/decrypt-wrapper
 RAG_DRM_ENABLED=true
 RAG_JAVA_COMMAND=java
 RAG_CFR_JAR_PATH=/srv/ecm-rag/tools/cfr-0.152.jar
+RAG_EASYOCR_DEVICE=cpu
 
 RAG_EMBED_URL=http://192.168.1.31:8200/v1/embeddings
 RAG_EMBED_MODEL=bge-m3
@@ -566,6 +583,8 @@ RAG_EMBED_API_KEY=
 RAG_LLM_URL=http://192.168.1.31:8000/v1
 RAG_LLM_MODEL=실제_모델명
 RAG_LLM_API_KEY=
+RAG_LLM_MAX_CONTINUATIONS=2
+RAG_INCIDENT_LOG_CONTEXT_CHARACTERS=16000
 
 RAG_DOCLING_ARTIFACTS=/srv/models/docling
 RAG_RERANK_MODEL_PATH=/srv/models/bge-reranker-v2-m3
@@ -577,6 +596,7 @@ ECM_RAG_API_WORKERS=2
 ECM_RAG_API_LIMIT_CONCURRENCY=100
 ECM_RAG_API_BACKLOG=256
 ECM_RAG_WORKER_PROCESSES=2
+ECM_RAG_DB_POOL_MAX_SIZE=10
 ```
 
 `.env`는 Git에 commit하지 않습니다. 값 확인 시 전체 DSN이나 비밀번호를 화면·티켓·로그에
@@ -595,14 +615,20 @@ ECM_RAG_WORKER_PROCESSES=2
 | `paths.upload_root` | 원본 파일 경로 | 기존 DB source_path와 함께 이전 |
 | `paths.artifact_root` | 변환 산출물 경로 | 디스크 사용량·백업 정책 확인 |
 | `database.vector.hnsw_ef_search` | vector 검색 정확도/비용 | 높을수록 느리고 recall 향상 |
+| `database.pool.max_size` | OS 프로세스별 DB 연결 풀 상한 | 전체 프로세스 수를 곱해 PostgreSQL `max_connections` 이내로 설정 |
 | `models.embedding.dimension` | embedding 차원 | SQL `vector(N)`과 반드시 동일 |
 | `models.embedding.batch_size` | 임베딩 요청 batch | 모델 서버 GPU 메모리에 맞게 조정 |
+| `models.embedding.max_attempts` | 임베딩 HTTP 최대 시도 횟수 | 408/429/5xx·network 오류만 재시도 |
 | `models.llm.context_top_k` | LLM에 전달할 근거 수 | 지연·context 길이에 영향 |
 | `models.llm.context_window_tokens` | 실제 LLM context 크기 | Ollama 모델 설정과 동일하게 지정 |
 | `models.llm.prompt_safety_tokens` | prompt 계산 안전 여유 | 출력 토큰 외 protocol/tokenizer 오차 흡수 |
 | `models.llm.max_history_characters` | 최근 대화 이력 문자 상한 | 높이면 문서 근거 공간이 감소 |
+| `models.llm.max_attempts` | LLM HTTP 최대 시도 횟수 | context 축소 재시도도 횟수에 포함 |
+| `models.llm.max_continuation_attempts` | 출력 길이 제한 시 이어쓰기 횟수 | `.env`의 `RAG_LLM_MAX_CONTINUATIONS`, 기본 2 |
+| `incident_guidance.max_log_context_characters` | 대량 로그에서 LLM에 전달할 핵심 오류 구간 문자 수 | `.env`의 `RAG_INCIDENT_LOG_CONTEXT_CHARACTERS`, 기본 16000 |
 | `retrieval.max_vector_distance` | 문서 관련성 cosine distance 상한 | 낮을수록 일반대화 차단이 엄격 |
 | `solutions.ocr` | `easyocr/rapidocr/disabled` | 현재 easyocr |
+| `solutions.easyocr_device` | `cpu/gpu/auto` | PPTX 이미지와 PDF EasyOCR 실행 장치 |
 | `worker.processes` | 처리 worker 수 | CPU/GPU/DB 부하 확인 |
 | `worker.lease_seconds` | 비정상 worker 회수 기준 | 대형 PDF 처리시간보다 충분히 길게 |
 | `worker.max_attempts` | 자동 시도 횟수 | 반복 실패 시 failed 전환 |
@@ -759,13 +785,41 @@ JSON의 `include_chunks`를 생략하거나 `true`로 보내면 `results` 청크
 `false`로 보내면 검색과 LLM 생성 과정에서는 동일한 청크를 사용하지만 응답에서
 `results`만 제외하며, `chunks_included=false`로 선택 결과를 표시합니다.
 
-### 14.4 브라우저 화면
+### 14.4 인증 사용자 장애 해결 가이드 API
+
+```bash
+curl -sS --cookie /tmp/ecm-rag-cookie.txt \
+  -X POST http://127.0.0.1:8300/api/v1/incident-guide/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "log_text":"ERROR ORA-00942\\njava.sql.SQLSyntaxErrorException: ORA-00942",
+    "question":"원인과 안전한 확인 절차를 알려줘",
+    "limit":8
+  }'
+```
+
+`log_text`와 `question` 중 하나는 반드시 입력해야 합니다. 로그는 최대 1,000,000자,
+질문은 최대 2,000자이며 응답은 `answer`, `generation_status`, `analysis`, `notices`로
+구성됩니다. DB/vector 검색 결과는 답변 생성에만 사용하고 응답에는 포함하지 않습니다.
+오류 의심 행 주변에서 선별하는 로그 문맥은 `RAG_INCIDENT_LOG_CONTEXT_CHARACTERS`로
+조정합니다. 값을 늘려도 `models.llm.max_context_characters`, 출력 토큰과 안전 여유를 제외한
+실제 모델 context 예산이 최종 상한입니다. 변경 후 API 프로세스를 재시작해야 합니다.
+
+- `GET /api/v1/incident-guide/template`: 인증 사용자 템플릿 조회
+- `PUT /api/v1/incident-guide/template`: 관리자 전용 템플릿 수정
+- `POST /api/v1/incident-guide/analyze`: 인증 사용자 로그 분석 및 해결 가이드 생성
+
+템플릿 수정과 분석 전에 `007_incident_guide_template.sql`과
+`008_incident_timestamp_template.sql` 적용 여부를 확인합니다.
+
+### 14.5 브라우저 화면
 
 - 임시 모드 첫 화면/간편 업로드: `http://서버IP:8300/`
 - 간편 업로드 직접 경로: `http://서버IP:8300/spl_upload.html`
 - 상세 업로드: `http://서버IP:8300/upload.html`
 - 로그인(인증 활성화 후): `http://서버IP:8300/login`
 - 검색/채팅: `http://서버IP:8300/search.html`
+- 장애 로그 해결 가이드: `http://서버IP:8300/incident_guide.html`
 - Markdown 문서 뷰어: 검색 결과의 `MD 보기`에서 새 화면으로 진입
 - 데이터 관리(RDB·pgvector): `http://서버IP:8300/admin.html`
 - Swagger: 운영 profile에서는 비활성, local/test/unit-test profile에서 `/docs`
@@ -786,6 +840,16 @@ JSON의 `include_chunks`를 생략하거나 `true`로 보내면 `results` 청크
 폐기됩니다. 임시 인증 비활성 모드는
 업로더로 동작하므로 관리자 화면/API에는 접근할 수 없습니다.
 
+장애 해결 화면은 인증 사용자에게 열리며, 상단 공용 답변 템플릿은 관리자만 수정할 수
+있습니다. 최대 1,000,000자의 로그에서 오류 코드·예외·호출 프레임을 선별한 뒤 내부
+PostgreSQL/pgvector 검색 결과와 함께 LLM에 전달합니다. 내부 검색의 문서명·검색 순위·
+청크 원문은 브라우저와 `POST /api/v1/incident-guide/analyze` 응답에 노출하지 않습니다.
+템플릿은 `rag.response_templates`에 저장되고 수정 사번과 시각을 함께 기록합니다.
+로그에서 시각을 확인할 수 있으면 오류·예외 설명에 해당 타임스탬프를 포함합니다. 화면
+하단 도식은 스택트레이스의 애플리케이션 frame을 역순으로 재구성하여 호출자 메서드부터
+오류 발생 메서드와 예외 전파까지 표시합니다. 업로드된 Java/JAR 소스 심볼과 일치한
+메서드는 `RAG 소스 확인`으로 표시하지만 RAG 원문 자체는 공개하지 않습니다.
+
 DB에서 `assets`를 직접 `DELETE`하면 하위 Version·Job·Chunk에 `ON DELETE CASCADE`가
 설정되어 있지만, 감사 이력 `upload_audit`은 cascade 대상이 아니므로 이력이 존재하면
 외래키가 물리 삭제를 차단합니다. 운영자는 관리자 API의 논리 삭제를 기본 절차로 사용하고
@@ -801,7 +865,10 @@ DB 직접 삭제는 감사 이력 보존 정책과 백업을 확정한 후 별�
 4. 같은 파일을 다시 올려 `동일한 파일 내용` 후보가 표시되는지 확인합니다.
 5. `search.html`에서 문서의 고유 문구로 질문합니다.
 6. 답변의 출처 카드를 눌러 원본 다운로드가 되는지 확인합니다.
-7. 마지막으로 PDF/EasyOCR/GPU 부하 시험을 수행합니다.
+7. `incident_guide.html`에 오류 코드와 스택트레이스가 있는 로그를 넣어 구조화 요약과
+   해결 가이드가 생성되고 조회 청크가 화면에 노출되지 않는지 확인합니다.
+8. 관리자 계정에서만 답변 템플릿 저장 버튼이 보이고 수정되는지 확인합니다.
+9. 마지막으로 PDF/EasyOCR/GPU 부하 시험을 수행합니다.
 
 대형 PDF는 CPU 환경에서 매우 오래 걸릴 수 있으므로 최초 점검은 작은 문서로 진행합니다.
 
@@ -946,7 +1013,7 @@ psql "$RAG_DB_DSN" -c 'SELECT 1'
 - 15초 timeout 내 응답하는지 확인
 - DB에 `rag.auth_sessions`가 존재하는지 확인
 
-### 18.4 `ModuleNotFoundError: docx`
+### 18.4 `ModuleNotFoundError: docx` 또는 `pptx`
 
 `docx`라는 다른 패키지가 아니라 다음 버전을 설치합니다.
 
@@ -954,6 +1021,8 @@ psql "$RAG_DB_DSN" -c 'SELECT 1'
 source .venv/bin/activate
 python -m pip install --force-reinstall python-docx==1.2.0
 python -c "from docx import Document; print('python-docx OK')"
+python -m pip install --force-reinstall python-pptx==1.0.2
+python -c "from pptx import Presentation; print('python-pptx OK')"
 ```
 
 ### 18.5 `ModuleNotFoundError: docling`

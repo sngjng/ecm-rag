@@ -15,7 +15,6 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = ROOT / "config" / "profiles"
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
@@ -60,11 +59,28 @@ class VectorStoreSettings(SettingsModel):
     hnsw_ef_search: int = Field(default=100, ge=1)
 
 
+class DatabasePoolSettings(SettingsModel):
+    """프로세스별 PostgreSQL 동기 연결 풀 정책."""
+
+    min_size: int = Field(default=0, ge=0, le=100)
+    max_size: int = Field(default=10, ge=1, le=100)
+    acquire_timeout_seconds: float = Field(default=10.0, gt=0)
+    max_idle_seconds: float = Field(default=300.0, gt=0)
+    max_lifetime_seconds: float = Field(default=3600.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_sizes(self) -> DatabasePoolSettings:
+        if self.min_size > self.max_size:
+            raise ValueError("database.pool.min_size는 max_size보다 클 수 없습니다")
+        return self
+
+
 class DatabaseSettings(SettingsModel):
     engine: Literal["postgresql"] = "postgresql"
     dsn: str = ""
     connect_timeout_seconds: int = Field(default=10, ge=1)
     schema_name: str = "rag"
+    pool: DatabasePoolSettings = Field(default_factory=DatabasePoolSettings)
     vector: VectorStoreSettings = Field(default_factory=VectorStoreSettings)
 
 
@@ -73,6 +89,11 @@ class EndpointSettings(SettingsModel):
     base_url: str = ""
     api_key: str = ""
     timeout_seconds: float = Field(default=120.0, gt=0)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    retry_backoff_seconds: float = Field(default=0.5, ge=0, le=60)
+    retry_max_backoff_seconds: float = Field(default=5.0, ge=0, le=300)
+    http_max_connections: int = Field(default=20, ge=1, le=1000)
+    http_max_keepalive_connections: int = Field(default=10, ge=0, le=1000)
 
 
 class LlmSettings(EndpointSettings):
@@ -87,6 +108,13 @@ class LlmSettings(EndpointSettings):
     prompt_safety_tokens: int = Field(default=1000, ge=128, le=32768)
     estimated_characters_per_token: float = Field(default=1.0, ge=0.5, le=8.0)
     max_history_characters: int = Field(default=1500, ge=0, le=50000)
+    # finish_reason=length이면 직전 답변을 이어 작성할 최대 횟수다.
+    max_continuation_attempts: int = Field(default=3, ge=0, le=5)
+    # 이어쓰기 요청에 직전 답변 전체를 다시 넣으면 긴 답변이 RAG 근거 공간을
+    # 잠식한다. 자연스러운 연결에 필요한 마지막 부분만 전달한다.
+    continuation_tail_characters: int = Field(default=2000, ge=500, le=10000)
+    # 이어쓰기에서도 최소한 이만큼의 검색 근거 공간을 확보한다.
+    continuation_min_context_characters: int = Field(default=1000, ge=0, le=20000)
 
 
 class EmbeddingSettings(EndpointSettings):
@@ -104,7 +132,7 @@ class RerankerSettings(SettingsModel):
     top_k: int = Field(default=10, ge=1)
 
     @model_validator(mode="after")
-    def require_model_when_enabled(self) -> "RerankerSettings":
+    def require_model_when_enabled(self) -> RerankerSettings:
         if self.enabled and not self.model_path:
             raise ValueError("models.reranker.enabled=true이면 model_path가 필요합니다")
         return self
@@ -129,7 +157,7 @@ class DrmSettings(SettingsModel):
     timeout_seconds: int = Field(default=120, ge=1)
 
     @model_validator(mode="after")
-    def require_command_when_enabled(self) -> "DrmSettings":
+    def require_command_when_enabled(self) -> DrmSettings:
         if self.enabled and not self.command:
             raise ValueError("solutions.drm.enabled=true이면 command가 필요합니다")
         return self
@@ -150,6 +178,7 @@ class JarDecompilerSettings(SettingsModel):
 class SolutionSettings(SettingsModel):
     document_parser: Literal["docling"] = "docling"
     ocr: Literal["easyocr", "rapidocr", "disabled"] = "easyocr"
+    easyocr_device: Literal["auto", "cpu", "gpu"] = "cpu"
     easyocr_languages: list[str] = Field(
         default_factory=lambda: ["ko", "en"], min_length=1
     )
@@ -204,6 +233,14 @@ class RetrievalSettings(SettingsModel):
     expand_neighbors: int = Field(default=1, ge=0, le=1)
 
 
+class IncidentGuidanceSettings(SettingsModel):
+    """대량 로그에서 LLM 문맥으로 선별할 핵심 구간 예산."""
+
+    # 전체 요청 로그는 별도로 보존하지 않으며, 오류 의심 행 주변에서 이 문자 수만큼만
+    # LLM 근거로 선별한다. 실제 전달량은 models.llm의 문맥 예산에 의해 더 줄어들 수 있다.
+    max_log_context_characters: int = Field(default=16000, ge=1000, le=200000)
+
+
 class AuthenticationSettings(SettingsModel):
     # 사내 로그인 연동 전까지 false로 두면 모든 보호 endpoint가 아래 임시 사용자로
     # 동작한다. Java 인증을 적용할 때 RAG_AUTH_ENABLED=true로 전환한다.
@@ -248,6 +285,9 @@ class AppSettings(SettingsModel):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    incident_guidance: IncidentGuidanceSettings = Field(
+        default_factory=IncidentGuidanceSettings
+    )
     security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 
@@ -277,7 +317,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
     if not isinstance(payload, dict):
-        raise ValueError(f"설정 파일의 최상위 값은 mapping이어야 합니다: {path}")
+        raise TypeError(f"설정 파일의 최상위 값은 mapping이어야 합니다: {path}")
     return payload
 
 

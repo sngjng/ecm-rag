@@ -16,7 +16,11 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 - 원본 문서, DRM 처리 결과, canonical artifact와 검색 청크의 계보(lineage) 보존
 - 문서 유형별 파싱·정규화·청킹을 통한 재사용 가능한 표준 데이터 생성
 - 문서 메타데이터, 버전, 처리 상태, 오류 및 재처리 이력을 PostgreSQL에서 관리
+- 일반 문서의 PDF·PPTX·DOCX·TXT·Markdown 업로드 및 검색 청크 변환
+- PPTX 포함 이미지의 EasyOCR 텍스트 추출과 Profile별 CPU·GPU·자동 장치 선택
 - 키워드·식별자·벡터 기반 통합 검색으로 ECM 문서의 발견성과 활용성 향상
+- 대량 장애 로그에서 오류 코드·예외·호출 프레임을 추출하고 내부 지식 검색과 관리자
+  템플릿을 결합한 해결 가이드 생성
 - API와 worker를 분리하여 접수 서비스와 대용량 문서 처리 프로세스를 독립 운영
 - 환경별 차이를 YAML profile로 분리하여 폐쇄망 운영환경의 변경 비용 최소화
 
@@ -40,7 +44,7 @@ RAG는 보험약관 질의응답 같은 특정 업무를 위한 최종 목적이
 ## 실행 구조
 
 ```text
-로그인 / 업로드 / 검색 / 관리자 HTML / OpenWebUI / 내부 시스템
+로그인 / 업로드 / 검색 / 장애 해결 / 관리자 HTML / OpenWebUI / 내부 시스템
         │
         ▼
 FastAPI
@@ -48,6 +52,7 @@ FastAPI
   ├─ /api/v1/ingestion    파일/작업 접수
   ├─ /api/v1/search       ECM 자산 통합 검색
   ├─ /api/v1/chat         검색 근거 기반 LLM 질의응답
+  ├─ /api/v1/incident-guide  장애 로그 분석·해결 가이드·템플릿 관리
   ├─ /api/v1/admin        RDB 자산·pgvector 청크·처리 작업 관리
   ├─ /api/v1/external/answer  내부망 무인증 질의·스택트레이스 분석
   └─ /api/v1/assets/.../download  원본 다운로드(인증 활성화 시 세션 검증)
@@ -166,10 +171,10 @@ bin/stop.sh
 - 로그: `artifacts/logs/api.log`, `artifacts/logs/worker.log`
 - 선택 환경변수: `ECM_RAG_HOST`, `ECM_RAG_PORT`, `ECM_RAG_PYTHON`, `ECM_RAG_STOP_TIMEOUT`
 - 동시성 환경변수: `ECM_RAG_API_WORKERS`, `ECM_RAG_API_LIMIT_CONCURRENCY`,
-  `ECM_RAG_API_BACKLOG`, `ECM_RAG_WORKER_PROCESSES`
+  `ECM_RAG_API_BACKLOG`, `ECM_RAG_WORKER_PROCESSES`, `ECM_RAG_DB_POOL_MAX_SIZE`
 - `.env`가 있으면 시작 시 자동으로 읽습니다.
-- 시작 전에 `sql/002_session_auth_audit.sql`과 `003_code_symbol_stack_lookup.sql`을
-  idempotent하게 자동 적용합니다.
+- 시작 전에 `sql/002_session_auth_audit.sql`부터
+  `008_incident_timestamp_template.sql`까지 idempotent하게 자동 적용합니다.
 - 원본 파일은 `server.max_upload_mb` 설정에 따라 현재 1건당 최대 10MiB까지 허용합니다.
 
 ### 다중 사용자 부하 보호
@@ -183,6 +188,12 @@ bin/stop.sh
 서로 다른 작업을 안전하게 나눠 처리합니다. 동일 SHA-256 원본이 동시에 접수되면
 PostgreSQL advisory lock으로 한 요청만 등록 단계에 진입시키고 나머지는 재시도 가능한
 HTTP 409로 응답합니다. 서버 사양에 따라 YAML 기본값 또는 위 환경변수를 조정합니다.
+
+API와 문서 worker의 각 OS 프로세스는 동기 PostgreSQL connection pool을 하나씩
+보유합니다. 기본 프로세스별 상한은 10이며 전체 예상 상한은
+`(API worker 수 + 문서 worker 수) × ECM_RAG_DB_POOL_MAX_SIZE`입니다. PostgreSQL의
+`max_connections`에서 운영·관리 연결 여유를 제외한 범위로 설정해야 합니다. 검색 시
+embedding과 reranker는 DB 연결 밖에서 실행되어 느린 모델 호출이 연결을 점유하지 않습니다.
 
 ### 개별 실행
 
@@ -203,13 +214,13 @@ curl http://127.0.0.1:8300/health/ready
 
 현재 임시 모드의 첫 화면 `/`은 간편 업로드이며 `/login`도 `/`로 이동합니다. 간편
 업로드는 `/spl_upload.html`, 상세 업로드는 `/upload.html`, 문서 질의응답은
-`/search.html`, 검색 문서의 Markdown 열람은 `/md_view.html`, 운영 데이터 관리는
-`/admin.html`에서 사용합니다. 업로드·검색 화면의
+`/search.html`, 장애 로그 해결 가이드는 `/incident_guide.html`, 검색 문서의 Markdown
+열람은 `/md_view.html`, 운영 데이터 관리는 `/admin.html`에서 사용합니다. 업로드·검색 화면의
 데이터 관리 링크는 기본적으로 숨겨지고 `/api/v1/auth/me`의 `roles`에 `admin`이 있는
 사용자에게만 표시됩니다. 인증을 활성화하면
 `/login`에서 로그인 후 간편 업로드로 이동합니다. 기존
-DB에는 `sql/002_session_auth_audit.sql`과
-`sql/003_code_symbol_stack_lookup.sql`을 추가 적용해야 합니다.
+DB에는 `sql/002_session_auth_audit.sql`부터
+`sql/008_incident_timestamp_template.sql`까지 추가 적용해야 합니다.
 
 인증을 활성화한 local/test/unit-test profile의 화면 확인 계정은 `test / test`입니다.
 운영 `rockylinux9` profile은 `python_module` provider가 `service/login.py`를 호출합니다.
@@ -260,7 +271,9 @@ LLM 연결 정보와 생성 제한은 코드가 아닌 선택된 `config/profile
 `context_window_tokens`는 실제 모델 context와 동일하게 설정해야 하며, 서비스는
 `max_tokens`, `prompt_safety_tokens`, 최근 대화 이력을 제외한 남은 예산만 검색 근거에
 사용합니다. 그래도 모델이 context 초과를 반환하면 이력을 제거하고 근거를 절반으로
-줄여 한 번 자동 재시도합니다.
+줄여 재시도합니다. timeout·연결 오류와 HTTP 408/429/5xx도 YAML의 `max_attempts`,
+`retry_backoff_seconds`, `retry_max_backoff_seconds` 범위에서 지수 backoff로 재시도합니다.
+LLM과 embedding 호출은 프로세스별 HTTP keep-alive client를 재사용합니다.
 
 ```bash
 export RAG_LLM_URL='http://LLM서버:포트/v1'
@@ -271,6 +284,47 @@ export RAG_LLM_API_KEY='필요한 경우에만 설정'
 검색 결과의 문서 카드를 클릭하면 해당 버전의 원본을 다운로드합니다. 인증 활성화 후에는
 세션 쿠키도 확인합니다.
 서버는 DB 경로를 그대로 신뢰하지 않고 `paths.upload_root` 내부 파일인지 재검증합니다.
+
+### 장애 로그 해결 가이드
+
+`/incident_guide.html`의 **로그분석 AI**는 인증 사용자가 최대 1,000,000자의 운영 로그와 자연어 질문을
+입력하는 전용 화면입니다. 서버는 오류 의심 구간, 오류 코드, 예외 클래스, 최하위 원인과
+애플리케이션 호출 프레임을 선별하고 PostgreSQL FTS·pgvector·코드 심볼 검색 결과를
+LLM 문맥에 결합합니다. 조회된 문서명·검색 순위·청크 원문은 화면과 API 응답에 반환하지
+않으며, 입력 로그의 구조화 요약과 최종 해결 가이드만 제공합니다.
+
+답변의 `## 2. 주요 오류 코드 및 예외`에는 로그에서 확인된 오류 발생 타임스탬프 또는
+시간 범위를 함께 표시합니다. 입력 로그와 내부 RAG 조회 문서·장애 사례·소스 코드를
+교차 검증하며, 답변 아래에는 `발생 시각 → 오류·예외 → 근본 원인 → RAG 지식 비교 →
+호출 위치 → 대응` 같은 일반 단계가 아니라 스택트레이스의 애플리케이션 프레임을
+`호출자 메서드 → 중간 메서드 → 오류 발생 메서드 → 예외 전파` 순서로 재구성합니다.
+업로드된 Java/JAR 소스 심볼과 일치한 메서드는 도식에 `RAG 소스 확인`으로 표시합니다.
+
+답변 형식은 `rag.response_templates`의 `incident_resolution_guide` 템플릿으로 관리합니다.
+인증 사용자는 현재 템플릿을 읽을 수 있지만 수정 버튼과
+`PUT /api/v1/incident-guide/template`은 관리자 역할에만 허용됩니다. 로그 없이 자연어
+질문만 전송해도 동일한 내부 검색과 템플릿 형식으로 답변합니다. LLM이 Markdown 제목이나
+순서를 누락하면 한 번 재생성하고, 계속 어기면 서버가 템플릿 구조를 보정합니다.
+대량 로그에서 실제 LLM 문맥으로 선별할 핵심 구간은 `.env`의
+`RAG_INCIDENT_LOG_CONTEXT_CHARACTERS`로 조정하며 기본값은 16,000자입니다. 최종 전달량은
+선택 profile의 `models.llm.max_context_characters`와 모델 context window를 넘지 않습니다.
+LLM이 `finish_reason=length`를 반환하면 `RAG_LLM_MAX_CONTINUATIONS` 횟수만큼 중단 지점부터
+답변을 이어 작성하며 기본값은 2회입니다.
+
+```bash
+curl -b session.cookie \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "log_text":"ERROR ORA-00942\\njava.sql.SQLSyntaxErrorException: ORA-00942",
+    "question":"가장 가능성이 높은 원인과 안전한 확인 절차를 알려줘",
+    "limit":8
+  }' \
+  http://127.0.0.1:8300/api/v1/incident-guide/analyze
+```
+
+기존 DB는 `sql/007_incident_guide_template.sql`과
+`sql/008_incident_timestamp_template.sql`을 적용해야 합니다. `bin/start.sh`는 시작할 때
+해당 migration을 자동 확인합니다.
 
 ### 내부망 외부 시스템 질의응답 API
 

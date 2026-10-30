@@ -8,8 +8,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr
-
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 AssetType = Literal["document", "incident", "error_trace", "source_code"]
 LifecycleStatus = Literal["draft", "approved", "obsolete"]
@@ -74,7 +73,7 @@ class AssetUpdate(BaseModel):
     def _required_patch_fields(cls) -> tuple[str, ...]:
         return ("subtype", "title", "security_level")
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any, /) -> None:
         for name in self._required_patch_fields():
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name}은 null로 변경할 수 없습니다")
@@ -117,6 +116,36 @@ class ExternalAnswerRequest(ChatRequest):
     include_chunks: bool = True
 
 
+class IncidentGuideRequest(BaseModel):
+    """대량 장애 로그와 자연어 후속 질문을 함께 받는 분석 계약."""
+
+    log_text: str = Field(default="", max_length=1000000)
+    question: str = Field(default="", max_length=2000)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
+    limit: int = Field(default=8, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def require_log_or_question(self) -> IncidentGuideRequest:
+        self.log_text = self.log_text.strip()
+        self.question = self.question.strip()
+        if not self.log_text and not self.question:
+            raise ValueError("장애 로그 또는 질문을 입력해 주세요")
+        return self
+
+
+class IncidentTemplateUpdate(BaseModel):
+    """관리자가 변경할 장애 해결 가이드 출력 템플릿."""
+
+    content: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def reject_blank_content(self) -> IncidentTemplateUpdate:
+        self.content = self.content.strip()
+        if not self.content:
+            raise ValueError("템플릿 내용을 입력해 주세요")
+        return self
+
+
 class AdminChunkCreate(BaseModel):
     """관리자 화면에서 수동으로 생성할 검색 청크와 pgvector 입력 계약."""
 
@@ -147,7 +176,7 @@ class AdminChunkUpdate(BaseModel):
     line_end: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] | None = None
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any, /) -> None:
         """DB의 NOT NULL 컬럼을 PATCH에서 명시적 null로 바꾸지 못하게 한다."""
         for name in ("kind", "display_content"):
             if name in self.model_fields_set and getattr(self, name) is None:

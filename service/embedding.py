@@ -1,10 +1,17 @@
 """이미 운영 중인 BGE-M3 OpenAI 호환 embedding API에만 연결한다."""
 from __future__ import annotations
+
 import hashlib
+import logging
 import math
 from collections.abc import Callable
+
 import httpx
+
 from service.config import get_settings
+from service.http_client import RETRYABLE_STATUS_CODES, get_http_client, sleep_before_retry
+
+logger = logging.getLogger(__name__)
 
 
 def embed(
@@ -35,27 +42,67 @@ def embed(
         raise RuntimeError(f'지원하지 않는 embedding provider: {settings.provider}')
     # 긴 코드/표는 API 길이 제한과 메모리 사용량을 위해 요청 단위로 절단한다.
     results: list[list[float]] = []
-    headers = {'Authorization': f'Bearer {settings.api_key}'} if settings.api_key else {}
-    with httpx.Client(timeout=settings.timeout_seconds, headers=headers) as client:
-        for start in range(0, len(texts), settings.batch_size):
-            # 모델의 입력 제한과 메모리 급증을 방지하기 위해 batch와 문자열 길이를 모두
-            # 설정값으로 제한한다.
-            batch = texts[start:start + settings.batch_size]
-            response = client.post(settings.base_url, json={
-                'model': settings.model,
-                'input': [text[:settings.max_input_characters] for text in batch],
-            })
-            response.raise_for_status()
-            data = sorted(response.json()['data'], key=lambda item: item['index'])
-            if len(data) != len(batch):
-                raise ValueError('Embedding 응답 건수가 요청과 다릅니다')
-            for item in data:
-                vector = item['embedding']
-                if len(vector) != settings.dimension or not all(math.isfinite(v) for v in vector):
-                    raise ValueError(
-                        f'{settings.model} 응답은 유한한 {settings.dimension}차원 벡터여야 합니다'
+    client = get_http_client(
+        "embedding",
+        settings.timeout_seconds,
+        settings.api_key,
+        settings.http_max_connections,
+        settings.http_max_keepalive_connections,
+    )
+    for start in range(0, len(texts), settings.batch_size):
+        # 모델의 입력 제한과 메모리 급증을 방지하기 위해 batch와 문자열 길이를 모두
+        # 설정값으로 제한한다.
+        batch = texts[start:start + settings.batch_size]
+        payload = {
+            'model': settings.model,
+            'input': [text[:settings.max_input_characters] for text in batch],
+        }
+        for attempt in range(1, settings.max_attempts + 1):
+            try:
+                response = client.post(settings.base_url, json=payload)
+                if (
+                    response.status_code in RETRYABLE_STATUS_CODES
+                    and attempt < settings.max_attempts
+                ):
+                    logger.warning(
+                        "Embedding request retry status=%s attempt=%d/%d",
+                        response.status_code,
+                        attempt,
+                        settings.max_attempts,
                     )
-                results.append(vector)
-            if progress:
-                progress(min(start + len(batch), len(texts)), len(texts))
+                    sleep_before_retry(
+                        attempt,
+                        settings.retry_backoff_seconds,
+                        settings.retry_max_backoff_seconds,
+                        response,
+                    )
+                    continue
+                response.raise_for_status()
+                break
+            except httpx.TransportError as exc:
+                if attempt >= settings.max_attempts:
+                    raise
+                logger.warning(
+                    "Embedding request retry error=%s attempt=%d/%d",
+                    type(exc).__name__,
+                    attempt,
+                    settings.max_attempts,
+                )
+                sleep_before_retry(
+                    attempt,
+                    settings.retry_backoff_seconds,
+                    settings.retry_max_backoff_seconds,
+                )
+        data = sorted(response.json()['data'], key=lambda item: item['index'])
+        if len(data) != len(batch):
+            raise ValueError('Embedding 응답 건수가 요청과 다릅니다')
+        for item in data:
+            vector = item['embedding']
+            if len(vector) != settings.dimension or not all(math.isfinite(v) for v in vector):
+                raise ValueError(
+                    f'{settings.model} 응답은 유한한 {settings.dimension}차원 벡터여야 합니다'
+                )
+            results.append(vector)
+        if progress:
+            progress(min(start + len(batch), len(texts)), len(texts))
     return results

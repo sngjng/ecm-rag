@@ -1,6 +1,6 @@
 # PostgreSQL 단일 저장소 개편 작업 기록
 
-최초 작성일: 2026-10-07 / 최종 현행화: 2026-10-22
+최초 작성일: 2026-10-07 / 최종 현행화: 2026-10-28
 
 ## 반영 사항
 
@@ -28,6 +28,10 @@
   `notices` 및 답변 안내 추가
 - 사내 로그인 구현 전 임시 인증 비활성 모드와 공통 임시 감사 사용자 추가
 - 첫 화면을 간편 업로드로 변경하고 `RAG_AUTH_ENABLED=true` 전환 시 기존 세션 인증 복구
+- 대량 장애 로그를 핵심 오류 구간으로 축약하고 내부 pgvector 검색과 공용 템플릿을 결합한
+  `incident_guide.html` 및 인증 API 추가; 조회 청크는 화면과 응답에서 숨김
+- 로그분석 AI의 오류별 타임스탬프 추출, RAG 지식 교차 검증과 스택 프레임 기반 메서드
+  호출·예외 전파 도식 및 LLM 길이 제한 이어쓰기 추가
 
 ## 공유 설계 대화 반영표
 
@@ -55,6 +59,7 @@
 6. `/api/v1/ingestion/jobs/{job_id}`에서 완료 상태 확인
 7. `/search.html`, `/api/v1/chat` 또는 `/api/v1/search`로 조회
 8. 외부 시스템은 내부망 ACL 적용 후 `/api/v1/external/answer` 호출
+9. 인증 사용자는 `/incident_guide.html`에서 로그 해결 가이드를 생성하고 관리자는 템플릿 관리
 
 ## API 요약
 
@@ -67,6 +72,8 @@
 - `POST /api/v1/ingestion/jobs/{job_id}/retry`
 - `POST /api/v1/search`
 - `POST /api/v1/chat`
+- `GET/PUT /api/v1/incident-guide/template`
+- `POST /api/v1/incident-guide/analyze`
 - `POST /api/v1/external/answer` (세션/API 키 없음, 내부망 ACL 필수)
 - `GET /health/live`, `GET /health/ready`
 

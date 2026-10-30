@@ -24,6 +24,12 @@ database:
   dsn: "${RAG_DB_DSN}"
   connect_timeout_seconds: 10
   schema_name: rag
+  pool:
+    min_size: 0
+    max_size: "${ECM_RAG_DB_POOL_MAX_SIZE:-10}"
+    acquire_timeout_seconds: 10
+    max_idle_seconds: 300
+    max_lifetime_seconds: 3600
   vector:
     provider: pgvector
     distance_metric: cosine
@@ -36,6 +42,11 @@ models:
     api_key: "${RAG_LLM_API_KEY:-}"
     model: "${RAG_LLM_MODEL}"
     timeout_seconds: 120
+    max_attempts: 3
+    retry_backoff_seconds: 0.5
+    retry_max_backoff_seconds: 5
+    http_max_connections: 20
+    http_max_keepalive_connections: 10
     temperature: 0.1
     max_tokens: 1200
     context_top_k: 8
@@ -44,6 +55,9 @@ models:
     prompt_safety_tokens: 1000
     estimated_characters_per_token: 1.0
     max_history_characters: 1500
+    max_continuation_attempts: "${RAG_LLM_MAX_CONTINUATIONS:-3}"
+    continuation_tail_characters: 2000
+    continuation_min_context_characters: 1000
   embedding:
     provider: openai_compatible
     base_url: "${RAG_EMBED_URL}"
@@ -53,6 +67,11 @@ models:
     batch_size: 8
     max_input_characters: 24000
     timeout_seconds: 120
+    max_attempts: 3
+    retry_backoff_seconds: 0.5
+    retry_max_backoff_seconds: 5
+    http_max_connections: 20
+    http_max_keepalive_connections: 10
   reranker:
     enabled: true
     provider: local_flag_embedding
@@ -63,6 +82,7 @@ models:
 solutions:
   document_parser: docling
   ocr: easyocr
+  easyocr_device: "${RAG_EASYOCR_DEVICE:-cpu}"
   easyocr_languages: [ko, en]
   docling:
     artifacts_path: "${RAG_DOCLING_ARTIFACTS}"
@@ -89,7 +109,7 @@ ingestion:
     enabled: true
     max_candidates: 5
   allowed_extensions:
-    document: [.pdf, .docx, .txt, .md]
+    document: [.pdf, .pptx, .docx, .txt, .md]
     incident: [.txt, .md]
     error_trace: [.log, .txt]
     source_code: [.py, .java, .jar, .sql, .js, .sh, .yml, .yaml]
@@ -114,6 +134,10 @@ retrieval:
   current_versions_only: true
   approved_versions_only: true
   expand_neighbors: 1
+
+incident_guidance:
+  # 오류 의심 행 주변에서 LLM 문맥으로 선별할 최대 문자 수.
+  max_log_context_characters: "${RAG_INCIDENT_LOG_CONTEXT_CHARACTERS:-16000}"
 
 security:
   authentication:

@@ -1,6 +1,6 @@
 # 아키텍처
 
-최종 현행화: 2026-10-22
+최종 현행화: 2026-10-28
 
 ## 경계
 
@@ -28,12 +28,14 @@ JPype/EAI Java VO 인증이 구현되어 있으며, 사내 환경 설정 후 `RA
 /spl_upload.html        간편 단건 업로드(자산유형·제목·원본파일)
 /upload.html            상세 업로드(upload.html)
 /search.html            검색 근거 기반 대화·원문 다운로드
+/incident_guide.html    대량 장애 로그 분석·템플릿 기반 해결 가이드
 /admin.html             RDB 자산·pgvector 청크·처리 작업 관리
 
 /api/v1/assets          Asset CRUD·통계·버전·원문·관계
 /api/v1/ingestion       업로드 접수·작업 상태·재시도
 /api/v1/search          조건부 인증 검색 결과 API
 /api/v1/chat            조건부 인증 검색+LLM 답변 API
+/api/v1/incident-guide  인증 로그 분석·관리자 템플릿 관리 API
 /api/v1/admin/*         관리자 역할 기반 자산·청크 CRUD·작업 재시도·사용자 권한 관리
 /api/v1/external/answer 무인증 내부망 검색+LLM/스택트레이스 분석 API
 ```
@@ -56,6 +58,7 @@ Asset
  └─ Asset Relation ─ Asset
 Auth Session ─ Employee snapshot
 Upload Audit ─ Asset Version + Employee snapshot
+Response Template ─ Incident resolution guide + Updater
 ```
 
 - Asset: 문서·장애·로그·코드의 논리적 정체성과 ECM metadata
@@ -64,6 +67,7 @@ Upload Audit ─ Asset Version + Employee snapshot
 - Relation: 문서·장애·코드 사이의 references/resolved_by/applies_to 관계
 - Auth Session: 해시된 세션 토큰, 사원정보 snapshot, 만료·폐기 상태
 - Upload Audit: 문서 접수자와 신규/버전등록 구분을 보존하는 감사 이력
+- Response Template: 장애 해결 가이드의 공용 출력 구조와 최종 수정 사번·시각
 
 원본 파일은 DB가 아니라 profile별 `paths.upload_root`에 저장하며 PostgreSQL에는 경로와
 checksum을 기록합니다. 파서 산출물과 JAR 디컴파일 결과는 `paths.artifact_root/{version_id}`
@@ -85,6 +89,13 @@ checksum을 기록합니다. 파서 산출물과 JAR 디컴파일 결과는 `pat
 5. 후보를 RRF로 결합하고 `max_vector_distance`로 무관한 일반대화 차단
 6. 선택적으로 BGE reranker 적용
 7. 결과 청크의 앞뒤 문맥을 함께 반환하고 LLM에는 설정된 문맥 예산만 전달
+
+장애 해결 화면은 입력 로그의 오류 의심 구간을 최대 16,000자의 LLM 근거로 축약하고,
+구조화한 오류 코드·예외·애플리케이션 프레임을 검색 질의에 추가합니다. 검색 청크는 최종
+가이드 생성의 교차 검증 근거로 사용하며 브라우저/API 응답에는 포함하지 않습니다.
+로그의 타임스탬프를 오류 발생 행과 연결합니다. 브라우저 도식은 stack frame의 기록
+순서를 뒤집어 호출자→중간 메서드→오류 발생 메서드→예외 전파 흐름을 표시하고,
+RAG에서 일치한 Java/JAR 심볼 여부만 비민감 구조화 값으로 전달합니다.
 
 기본 검색은 `is_current=true`, `lifecycle_status=approved`를 적용하며 과거 분석 요청에서만
 `include_obsolete=true`로 완화합니다.

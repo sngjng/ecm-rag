@@ -1,18 +1,23 @@
 """파일 유형에 따른 정규화. 원문과 추출 좌표를 별도로 남긴다."""
 from __future__ import annotations
+
 import ast
 import hashlib
 import json
+import logging
 import re
-from datetime import datetime
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+from service.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 CODE_RE = re.compile(r'\b(?:ORA-\d{5}|SQLSTATE[=: ]+[0-9A-Z]{5}|[A-Z]{3,8}\d{3,6}[A-Z]?|SQLCODE[=: ]+-?\d+)\b')
 EXCEPTION_RE = re.compile(r'\b(?:[\w.]+(?:Exception|Error))\b')
-FRAME_RE = re.compile(r'^\s*at\s+([\w.$]+)\.([\w$<>]+)\(([^():]+)(?::(\d+))?\)', re.M)
+FRAME_RE = re.compile(r'^\s*at\s+([\w.$]+)\.([\w$<>]+)\(([^():]+)(?::(\d+))?\)', re.MULTILINE)
 JAVA_EXCEPTION_RE = re.compile(
     r'\b(?:[A-Za-z_$][\w.$]*)?(?:Exception|Error|Throwable)\b'
 )
@@ -125,7 +130,7 @@ def _parse_java_definitions_without_native(
     definitions: list[tuple[str, str, str | None, int, int, str | None]] = []
     class_ranges: list[tuple[int, int, str]] = []
     class_pattern = re.compile(
-        r'\b(class|interface|enum|record)\s+([A-Za-z_$][\w$]*)[^;{}]*\{', re.M
+        r'\b(class|interface|enum|record)\s+([A-Za-z_$][\w$]*)[^;{}]*\{', re.MULTILINE
     )
     for match in class_pattern.finditer(masked):
         opening = match.end() - 1
@@ -192,7 +197,7 @@ def extract_java_diagnostics(
         text,
     )))
     caught: set[str] = set()
-    for match in re.finditer(r'\bcatch\s*\(([^)]*)\)', text, re.S):
+    for match in re.finditer(r'\bcatch\s*\(([^)]*)\)', text, re.DOTALL):
         caught.update(JAVA_EXCEPTION_RE.findall(match.group(1)))
 
     error_codes = sorted(set(CODE_RE.findall(text)))
@@ -317,6 +322,322 @@ def parse_docx(path: Path) -> tuple[list[Item], dict]:
                                   parent_id=table_id,
                                   metadata={'row': row_number, 'heading': heading}))
     return items, {'paragraphs_and_table_rows': len(items)}
+
+
+@lru_cache(maxsize=4)
+def _get_easyocr_reader(
+    languages: tuple[str, ...],
+    device: str,
+    model_storage_directory: str,
+    download_enabled: bool,
+):
+    """무거운 EasyOCR 모델을 언어·장치 조합별로 Worker 프로세스에서 재사용한다."""
+    import easyocr
+    import torch
+
+    if device == "gpu":
+        cuda_available = torch.cuda.is_available()
+        mps_backend = getattr(torch.backends, "mps", None)
+        mps_available = bool(mps_backend and mps_backend.is_available())
+        if not (cuda_available or mps_available):
+            raise RuntimeError(
+                "solutions.easyocr_device=gpu이지만 사용할 수 있는 CUDA/MPS GPU가 없습니다"
+            )
+        use_gpu = True
+    elif device == "auto":
+        # EasyOCR가 CUDA→MPS→CPU 순으로 사용 가능한 장치를 선택한다.
+        use_gpu = True
+    else:
+        use_gpu = False
+
+    logger.info(
+        "EasyOCR reader loading languages=%s device=%s model_dir=%s",
+        ",".join(languages),
+        device,
+        model_storage_directory or "<default>",
+    )
+    return easyocr.Reader(
+        lang_list=list(languages),
+        gpu=use_gpu,
+        model_storage_directory=model_storage_directory or None,
+        download_enabled=download_enabled,
+        verbose=False,
+    )
+
+
+def _pptx_image_blobs(shape) -> list[bytes]:
+    """일반 그림과 그룹 도형 내부 그림의 원본 byte를 재귀 수집한다."""
+    blobs: list[bytes] = []
+    try:
+        image = shape.image
+    except (AttributeError, ValueError):
+        image = None
+    if image is not None:
+        blobs.append(image.blob)
+    for child in getattr(shape, "shapes", ()):
+        blobs.extend(_pptx_image_blobs(child))
+    return blobs
+
+
+def _ocr_pptx_image(blob: bytes, reader) -> str:
+    """PPTX 이미지 하나를 메모리에서 RGB로 변환하고 EasyOCR 텍스트를 반환한다."""
+    from io import BytesIO
+
+    import numpy as np
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(BytesIO(blob)) as image:
+            width, height = image.size
+            pixel_count = width * height
+            # 아이콘·구분선은 OCR 비용만 늘리고, 비정상 대형 이미지는 메모리를 고갈시킬
+            # 수 있으므로 합리적인 범위의 그림만 처리한다.
+            if pixel_count < 2_500:
+                return ""
+            if pixel_count > 40_000_000:
+                logger.warning(
+                    "PPTX image OCR skipped: too many pixels width=%d height=%d",
+                    width,
+                    height,
+                )
+                return ""
+            image = image.convert("RGB")
+            image.thumbnail((4096, 4096))
+            image_array = np.asarray(image)
+    except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError) as exc:
+        logger.warning("PPTX image OCR skipped: %s", type(exc).__name__)
+        return ""
+
+    values = reader.readtext(image_array, detail=0, paragraph=False)
+    return "\n".join(str(value).strip() for value in values if str(value).strip())
+
+
+def _pptx_shape_text(shape) -> str:
+    """PPTX 일반·그룹 도형의 텍스트를 화면 배치 순서로 재귀 추출한다."""
+    if getattr(shape, "has_text_frame", False):
+        return "\n".join(
+            paragraph.text.strip()
+            for paragraph in shape.text_frame.paragraphs
+            if paragraph.text.strip()
+        )
+    grouped_shapes = getattr(shape, "shapes", None)
+    if grouped_shapes is not None:
+        ordered = sorted(
+            grouped_shapes,
+            key=lambda item: (getattr(item, "top", 0), getattr(item, "left", 0)),
+        )
+        return "\n".join(filter(None, (_pptx_shape_text(item) for item in ordered)))
+    return ""
+
+
+def _pptx_table_markdown(rows: list[list[str]]) -> str:
+    """슬라이드 표를 MD 뷰어에서도 읽을 수 있는 Markdown 표로 변환한다."""
+    if not rows:
+        return ""
+    width = max(len(row) for row in rows)
+
+    def normalize(row: list[str]) -> list[str]:
+        values = row + [""] * (width - len(row))
+        return [value.replace("|", "\\|").replace("\n", "<br>") for value in values]
+
+    header = normalize(rows[0])
+    lines = [f"| {' | '.join(header)} |", f"| {' | '.join(['---'] * width)} |"]
+    lines.extend(f"| {' | '.join(normalize(row))} |" for row in rows[1:])
+    return "\n".join(lines)
+
+
+def parse_pptx(path: Path, out: Path) -> tuple[list[Item], dict]:
+    """PPTX의 텍스트·표·발표자 노트·이미지 OCR을 검색 청크와 Markdown으로 만든다.
+
+    각 ``Item.page_start``/``page_end``에는 슬라이드 번호를 저장한다. 화면 좌표가 아닌
+    논리적 읽기 순서를 사용하므로 PowerPoint 편집 후에도 출처 슬라이드를 추적할 수 있다.
+    EasyOCR 장치는 Profile의 ``solutions.easyocr_device`` 정책을 따른다.
+    """
+    from pptx import Presentation
+
+    solution_settings = get_settings().solutions
+    use_easyocr = solution_settings.ocr == "easyocr"
+    artifacts_path = solution_settings.docling.artifacts_path
+    easyocr_model_directory = (
+        str(Path(artifacts_path) / "EasyOcr") if artifacts_path else ""
+    )
+    easyocr_download_enabled = not bool(easyocr_model_directory)
+    reader = None
+    ocr_cache: dict[str, str] = {}
+    presentation = Presentation(path)
+    items: list[Item] = []
+    markdown_sections = [f"# {path.stem}"]
+    table_count = 0
+    text_block_count = 0
+    note_count = 0
+    image_count = 0
+    ocr_image_count = 0
+    ocr_unique_image_count = 0
+
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        title_shape = slide.shapes.title
+        title = title_shape.text.strip() if title_shape is not None else ""
+        heading = title or f"슬라이드 {slide_number}"
+        body_parts: list[str] = []
+        table_markdown: list[str] = []
+        image_ocr_parts: list[tuple[int, str]] = []
+        ordered_shapes = sorted(
+            slide.shapes,
+            key=lambda shape: (getattr(shape, "top", 0), getattr(shape, "left", 0)),
+        )
+
+        for shape in ordered_shapes:
+            if title_shape is not None and shape.shape_id == title_shape.shape_id:
+                continue
+
+            for blob in _pptx_image_blobs(shape):
+                image_count += 1
+                if not use_easyocr:
+                    continue
+                if (
+                    solution_settings.docling.require_local_artifacts
+                    and not artifacts_path
+                ):
+                    raise RuntimeError(
+                        "PPTX 이미지 OCR에는 로컬 Docling/EasyOCR artifact 경로가 필요합니다"
+                    )
+                if reader is None:
+                    reader = _get_easyocr_reader(
+                        tuple(solution_settings.easyocr_languages),
+                        solution_settings.easyocr_device,
+                        easyocr_model_directory,
+                        easyocr_download_enabled,
+                    )
+                digest = hashlib.sha256(blob).hexdigest()
+                if digest not in ocr_cache:
+                    ocr_cache[digest] = _ocr_pptx_image(blob, reader)
+                    ocr_unique_image_count += 1
+                ocr_text = ocr_cache[digest]
+                if ocr_text:
+                    image_ocr_parts.append((image_count, ocr_text))
+                    ocr_image_count += 1
+
+            if getattr(shape, "has_table", False):
+                rows = [
+                    [cell.text.strip() for cell in row.cells]
+                    for row in shape.table.rows
+                ]
+                if not rows:
+                    continue
+                table_count += 1
+                table_id = f"slide:{slide_number}:table:{table_count}"
+                headers = rows[0]
+                data_rows = rows[1:] or [rows[0]]
+                for row_number, row in enumerate(data_rows, start=2 if len(rows) > 1 else 1):
+                    if len(rows) == 1:
+                        values = [value for value in row if value]
+                    else:
+                        values = [
+                            f"{headers[index] or f'열{index + 1}'}: {value}"
+                            for index, value in enumerate(row)
+                            if value
+                        ]
+                    if not values:
+                        continue
+                    items.append(Item(
+                        kind="table",
+                        text=f"{heading}\n" + "; ".join(values),
+                        page_start=slide_number,
+                        page_end=slide_number,
+                        parent_id=table_id,
+                        metadata={
+                            "heading": heading,
+                            "slide_number": slide_number,
+                            "row": row_number,
+                        },
+                    ))
+                table_markdown.append(_pptx_table_markdown(rows))
+                continue
+
+            value = _pptx_shape_text(shape).strip()
+            if value and value != title:
+                body_parts.append(value)
+                text_block_count += 1
+
+            if getattr(shape, "has_chart", False):
+                chart = shape.chart
+                chart_parts: list[str] = []
+                if chart.has_title:
+                    chart_parts.append(chart.chart_title.text_frame.text.strip())
+                chart_parts.extend(
+                    str(series.name).strip() for series in chart.series if str(series.name).strip()
+                )
+                chart_text = "\n".join(filter(None, chart_parts))
+                if chart_text:
+                    body_parts.append(f"차트: {chart_text}")
+
+        notes = ""
+        try:
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
+                notes = slide.notes_slide.notes_text_frame.text.strip()
+        except (AttributeError, ValueError):
+            # 일부 외부 도구가 만든 PPTX에는 notes 관계가 불완전할 수 있다.
+            notes = ""
+        if notes:
+            body_parts.append(f"발표자 노트:\n{notes}")
+            note_count += 1
+
+        if body_parts or (title and not table_markdown):
+            items.append(Item(
+                kind="text",
+                text=(f"{heading}\n" + "\n\n".join(body_parts)).strip(),
+                page_start=slide_number,
+                page_end=slide_number,
+                metadata={"heading": heading, "slide_number": slide_number},
+            ))
+
+        for image_number, ocr_text in image_ocr_parts:
+            items.append(Item(
+                kind="text",
+                text=f"{heading}\n이미지 OCR:\n{ocr_text}",
+                page_start=slide_number,
+                page_end=slide_number,
+                metadata={
+                    "heading": heading,
+                    "slide_number": slide_number,
+                    "content_source": "image_ocr",
+                    "image_number": image_number,
+                },
+            ))
+
+        markdown_sections.append(f"## {slide_number}. {heading}")
+        markdown_sections.extend(body_parts)
+        markdown_sections.extend(table_markdown)
+        markdown_sections.extend(
+            f"### 이미지 OCR {image_number}\n\n{ocr_text}"
+            for image_number, ocr_text in image_ocr_parts
+        )
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "document.md").write_text(
+        "\n\n".join(section for section in markdown_sections if section).strip() + "\n",
+        encoding="utf-8",
+    )
+    with (out / "chunks.jsonl").open("w", encoding="utf-8") as handle:
+        for item in items:
+            handle.write(json.dumps(asdict(item), ensure_ascii=False, default=str) + "\n")
+
+    report = {
+        "slides": len(presentation.slides),
+        "text_blocks": text_block_count,
+        "tables": table_count,
+        "speaker_notes": note_count,
+        "images": image_count,
+        "ocr_images": ocr_image_count,
+        "ocr_unique_images_processed": ocr_unique_image_count,
+        "ocr_engine": solution_settings.ocr,
+        "ocr_device": solution_settings.easyocr_device,
+        "chunks": len(items),
+    }
+    (out / "metadata.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return items, report
 
 
 def parse_text(path: Path) -> tuple[list[Item], dict]:
@@ -484,7 +805,7 @@ def parse_code(
     elif suffix == '.java':
         # 폐쇄망에서는 grammar wheel까지 반입해야 한다. 실패 시 잘못된 심볼 대신 파일 청크만 사용한다.
         raw = source.encode('utf-8')
-        package_match = re.search(r'^\s*package\s+([\w.]+)\s*;', source, re.M)
+        package_match = re.search(r'^\s*package\s+([\w.]+)\s*;', source, re.MULTILINE)
         package_name = package_match.group(1) if package_match else None
         if safe_java_parser:
             definitions.extend(_parse_java_definitions_without_native(source))

@@ -10,7 +10,6 @@ import hashlib
 import re
 from typing import Any
 
-
 ERROR_CODE = re.compile(
     r"\b(?:ORA-\d{5}|SQLSTATE[=: ]+[0-9A-Z]{5}|SQLCODE[=: ]+-?\d+|"
     r"[A-Z]{2,12}[-_]?\d{3,8}[A-Z]?)\b"
@@ -32,6 +31,8 @@ CAUSE = re.compile(
 STANDARD_PACKAGE_PREFIXES = (
     "java.", "javax.", "jdk.", "sun.", "com.sun.",
     "org.springframework.", "org.apache.", "weblogic.",
+    "oracle.", "org.postgresql.", "com.mysql.", "com.microsoft.sqlserver.",
+    "com.ibm.db2.",
 )
 
 

@@ -1,5 +1,6 @@
 flowchart TB
-    U["사용자 로그인 / 업로드 HTML"] --> API["FastAPI API 프로세스"]
+    U["사용자 로그인 / 업로드 / 검색 HTML"] --> API["FastAPI API 프로세스"]
+    GUIDE_UI["장애 로그 해결 가이드 HTML"] --> API
     OW["OpenWebUI + LLM"] --> API
     API --> AUTH["Java 사내 로그인 Adapter"]
 
@@ -7,11 +8,13 @@ flowchart TB
         CRUD["Asset / Version / Relation CRUD"]
         INGEST["Upload / Job API"]
         SEARCH["Hybrid Search API"]
+        GUIDE["Incident Guide API\n로그 축약 + 관리자 템플릿"]
         SESSION["Login / Session API"]
     end
     API --> CRUD
     API --> INGEST
     API --> SEARCH
+    API --> GUIDE
     API --> SESSION
 
     CRUD --> PG[("PostgreSQL 17\nRDB + FTS + pg_trgm + pgvector")]
@@ -49,6 +52,8 @@ flowchart TB
     VECTOR --> RRF
     RRF --> RERANK["Optional Reranker"]
     RERANK --> SEARCH
+    RERANK --> GUIDE
+    GUIDE --> LLM["OpenAI 호환 LLM"]
 
     YAML["Base YAML + Environment Profile"] --> API
     YAML --> WORKER

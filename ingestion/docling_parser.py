@@ -21,8 +21,8 @@ from docling.datamodel.pipeline_options import (
     TableFormerMode,
 )
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from service.config import get_settings
 
+from service.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,33 @@ class DoclingParser:
         # do_ocr만 켜면 Docling의 auto OCR가 설치된 엔진 중 RapidOCR를 우선 선택할 수
         # 있다. YAML의 선택이 실제 실행 엔진과 일치하도록 엔진 옵션을 명시한다.
         if solution_settings.ocr == "easyocr":
+            if solution_settings.easyocr_device == "gpu":
+                import torch
+
+                mps_backend = getattr(torch.backends, "mps", None)
+                if not (
+                    torch.cuda.is_available()
+                    or bool(mps_backend and mps_backend.is_available())
+                ):
+                    raise RuntimeError(
+                        "solutions.easyocr_device=gpu이지만 사용할 수 있는 CUDA/MPS GPU가 없습니다"
+                    )
+            use_gpu = {
+                "auto": None,
+                "cpu": False,
+                "gpu": True,
+            }[solution_settings.easyocr_device]
             options.ocr_options = EasyOcrOptions(
-                lang=solution_settings.easyocr_languages
+                lang=solution_settings.easyocr_languages,
+                use_gpu=use_gpu,
             )
         elif solution_settings.ocr == "rapidocr":
             options.ocr_options = RapidOcrOptions()
-        logger.info("Docling OCR engine configured: %s", solution_settings.ocr)
+        logger.info(
+            "Docling OCR engine configured: %s device=%s",
+            solution_settings.ocr,
+            solution_settings.easyocr_device,
+        )
         # 오프라인 운영에서는 모델을 미리 반입하고 경로를 지정해야 네트워크 요청이 없다.
         settings = solution_settings.docling
         artifacts = settings.artifacts_path
