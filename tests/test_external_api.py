@@ -1,6 +1,7 @@
 """외부 질의응답 입력 형식의 네트워크 비의존 단위 테스트."""
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -91,6 +92,17 @@ class ExternalQuestionParsingTests(unittest.TestCase):
             "application/json",
         )
         self.assertFalse(request.include_chunks)
+
+    def test_external_request_accepts_preferred_documents(self):
+        asset_id = uuid4()
+        request, _ = prepare_external_answer(
+            (
+                '{"query":"그 문서의 재기동 방법은?","preferred_asset_ids":'
+                f'["{asset_id}"]}}'
+            ).encode(),
+            "application/json",
+        )
+        self.assertEqual(request.preferred_asset_ids, [asset_id])
 
     def test_plain_stack_trace_is_detected_without_json_wrapper(self):
         request, analysis = prepare_external_answer(

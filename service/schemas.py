@@ -106,6 +106,9 @@ class ChatRequest(SearchRequest):
     """문서 검색과 근거 기반 답변 생성을 한 번에 요청한다."""
 
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
+    # 대화형 후속 질문에서 직전 답변의 문서를 우선 검색한다. 하드 필터가 아니므로
+    # 새 주제가 명확하면 전체 문서 검색 결과가 계속 상위에 올 수 있다.
+    preferred_asset_ids: list[UUID] = Field(default_factory=list, max_length=5)
     # 문서 조회 화면에서만 true로 요청한다. 관계형 내용이 아니면 diagram은 null이다.
     include_diagram: bool = False
 
@@ -133,6 +136,12 @@ class IncidentGuideRequest(BaseModel):
         if not self.log_text and not self.question:
             raise ValueError("장애 로그 또는 질문을 입력해 주세요")
         return self
+
+
+class IncidentReportRequest(BaseModel):
+    """화면에 표시된 로그 분석 가이드를 Word 문서로 변환하는 입력 계약."""
+
+    answer: str = Field(min_length=1, max_length=100000)
 
 
 class IncidentTemplateUpdate(BaseModel):

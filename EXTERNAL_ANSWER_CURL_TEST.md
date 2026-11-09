@@ -84,9 +84,34 @@ curl -sS -w '\nHTTP_STATUS=%{http_code}\n' \
 
 기대 결과: HTTP `200`, `request_type=question`
 
+### TC-05 후속 질문에서 직전 문서 우선 검색
+
+첫 질문 응답의 `results[].asset_id` 중 후속 질문에서 우선할 문서를 전달합니다. 이 값은
+검색 범위를 강제로 제한하지 않으며, 지정 문서를 우선 검색하면서 전체 문서 검색도 함께
+수행합니다. 최대 5개까지 전달할 수 있습니다.
+
+```bash
+curl -sS -w '\nHTTP_STATUS=%{http_code}\n' \
+  -X POST 'http'://'127.0.0.1:8300/api/v1/external/answer' \
+  -H 'Content-Type: application/json; charset=utf-8' \
+  -d '{
+    "query": "그 문서의 재기동 방법은?",
+    "preferred_asset_ids": ["첫 번째 응답의 asset_id UUID"],
+    "limit": 5,
+    "include_chunks": true
+  }'
+```
+
+기대 결과:
+
+- HTTP `200`
+- `preferred_asset_ids_applied`에 요청한 UUID 포함
+- 지정 문서 청크는 `preferred_document=true`로 표시
+- 지정 문서에 답이 없거나 새 문서명이 명확하면 전체 문서 결과도 반환 가능
+
 ## 3. 스택트레이스 분석
 
-### TC-05 JSON의 stack_trace 필드
+### TC-06 JSON의 stack_trace 필드
 
 ```bash
 curl -sS -w '\nHTTP_STATUS=%{http_code}\n' \
@@ -111,7 +136,7 @@ JSON
 - `stack_trace_analysis.application_frames`: `AssetService.load`, `AssetRepository.find` 정보 포함
 - 업로드한 JAR/Java와 package·class·method가 일치하면 `results`에 관련 소스 청크 포함
 
-### TC-06 text/plain 자동 판별
+### TC-07 text/plain 자동 판별
 
 ```bash
 curl -sS -w '\nHTTP_STATUS=%{http_code}\n' \

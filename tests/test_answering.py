@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from service.answering import DECOMPILED_LINE_NOTICE, answer_documents
 from service.schemas import ChatRequest
@@ -77,6 +78,64 @@ class AnswerNoticeTests(unittest.TestCase):
             ["version:000000"], max_entities=30, max_relations=50
         )
         build.assert_called_once_with(graph)
+
+    def test_diagram_is_hidden_when_answer_reports_insufficient_evidence(self):
+        result = {
+            "chunk_id": "version:000000",
+            "kind": "text",
+            "metadata": {},
+            "content": "하이메시징 시스템 성능시험",
+        }
+        settings = self._settings()
+        settings.graph_rag.enabled = True
+        graph = {
+            "entities": [{"entity_id": "one"}, {"entity_id": "two"}],
+            "relations": [{"relation_id": "relation"}],
+        }
+        answer = (
+            '제공된 문서에서 "여신 롤 배치 이관" 관련 내용은 '
+            "확인할 수 없습니다."
+        )
+        with (
+            patch("service.answering.get_settings", return_value=settings),
+            patch("service.answering.search", return_value=[result]),
+            patch("service.answering.fetch_subgraph", return_value=graph),
+            patch("service.answering.generate_answer", return_value=answer),
+            patch("service.answering.build_document_diagram") as build,
+        ):
+            response = answer_documents(
+                ChatRequest(query="여신 롤 배치 이관 가이드", include_diagram=True)
+            )
+
+        self.assertIsNone(response["diagram"])
+        build.assert_not_called()
+
+    def test_preferred_documents_are_forwarded_to_hybrid_search(self):
+        preferred_asset_id = uuid4()
+        result = {
+            "asset_id": preferred_asset_id,
+            "kind": "text",
+            "metadata": {},
+            "content": "A서버 재기동 절차",
+        }
+        with (
+            patch("service.answering.get_settings", return_value=self._settings()),
+            patch("service.answering.search", return_value=[result]) as search,
+            patch("service.answering.generate_answer", return_value="재기동 절차입니다."),
+        ):
+            response = answer_documents(ChatRequest(
+                query="그 문서의 재기동 방법은?",
+                preferred_asset_ids=[preferred_asset_id],
+            ))
+
+        self.assertEqual(
+            search.call_args.kwargs["preferred_asset_ids"],
+            [preferred_asset_id],
+        )
+        self.assertEqual(
+            response["preferred_asset_ids_applied"],
+            [str(preferred_asset_id)],
+        )
 
 
 if __name__ == "__main__":

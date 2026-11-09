@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from typing import Any
+from uuid import UUID
 
 import numpy as np
 
@@ -245,6 +246,53 @@ def _vector_lane(
     return _qualified_vector_ranking(rows, max_distance)
 
 
+def _preferred_filters(
+    filter_sql: str,
+    filter_values: tuple,
+    preferred_asset_ids: list[UUID],
+) -> tuple[str, tuple]:
+    """기본 보안·수명주기 조건에 직전 답변 문서 범위를 추가한다."""
+    return (
+        filter_sql + " AND a.asset_id=ANY(%s)",
+        (*filter_values, preferred_asset_ids),
+    )
+
+
+def _retrieve_lanes(
+    conn: Any,
+    query: str,
+    query_vector: np.ndarray,
+    filter_sql: str,
+    filter_values: tuple,
+    settings: Any,
+) -> tuple[list[list[str]], dict[str, float]]:
+    """한 검색 범위에서 exact·graph·FTS·vector lane을 생성한다."""
+    retrieval = settings.retrieval
+    lanes = _stack_symbol_lanes(
+        conn, query, filter_sql, filter_values, retrieval.exact_top_k
+    )
+    lanes.extend(_identifier_lanes(
+        conn, query, filter_sql, filter_values, retrieval.exact_top_k
+    ))
+    if settings.graph_rag.enabled:
+        lanes.append(_graph_entity_lane(
+            conn, query, filter_sql, filter_values, retrieval.exact_top_k
+        ))
+    lanes.append(_lexical_lane(
+        conn, query, filter_sql, filter_values, retrieval.lexical_top_k
+    ))
+    vector_ranking, vector_distances = _vector_lane(
+        conn,
+        query_vector,
+        filter_sql,
+        filter_values,
+        retrieval.vector_top_k,
+        retrieval.max_vector_distance,
+    )
+    lanes.append(vector_ranking)
+    return lanes, vector_distances
+
+
 def _fetch_candidates(conn: Any, ranked: list[str]) -> dict[str, dict]:
     rows = conn.execute(
         """SELECT c.chunk_id, c.display_content AS content, c.kind, c.identifier,
@@ -311,6 +359,7 @@ def search(
     product: str | None = None,
     include_obsolete: bool = False,
     limit: int | None = None,
+    preferred_asset_ids: list[UUID] | None = None,
 ) -> list[dict]:
     """검색 후보를 생성·융합하고 화면/LLM이 사용할 근거 메타데이터를 반환한다."""
     settings = get_settings()
@@ -328,28 +377,29 @@ def search(
             "SELECT set_config('hnsw.ef_search', %s, true)",
             (str(settings.database.vector.hnsw_ef_search),),
         )
-        lanes = _stack_symbol_lanes(
-            conn, query, filter_sql, filter_values, retrieval.exact_top_k
+        global_lanes, vector_distances = _retrieve_lanes(
+            conn, query, query_vector, filter_sql, filter_values, settings
         )
-        lanes.extend(_identifier_lanes(
-            conn, query, filter_sql, filter_values, retrieval.exact_top_k
-        ))
-        if settings.graph_rag.enabled:
-            lanes.append(_graph_entity_lane(
-                conn, query, filter_sql, filter_values, retrieval.exact_top_k
-            ))
-        lanes.append(_lexical_lane(
-            conn, query, filter_sql, filter_values, retrieval.lexical_top_k
-        ))
-        vector_ranking, vector_distances = _vector_lane(
-            conn,
-            query_vector,
-            filter_sql,
-            filter_values,
-            retrieval.vector_top_k,
-            retrieval.max_vector_distance,
-        )
-        lanes.append(vector_ranking)
+        lanes = list(global_lanes)
+
+        # 직전 답변 문서를 별도 검색 범위로 한 번 더 실행해 RRF에 soft boost를 준다.
+        # 전체 lane도 항상 남기므로 새로운 시스템명·문서명이 명확한 질문은 전역 결과가
+        # 우선할 수 있고, "그 문서의 재기동 방법" 같은 후속 질문은 이전 문서가 앞선다.
+        preferred_asset_ids = list(dict.fromkeys(preferred_asset_ids or []))[:5]
+        if preferred_asset_ids:
+            preferred_sql, preferred_values = _preferred_filters(
+                filter_sql, filter_values, preferred_asset_ids
+            )
+            preferred_lanes, preferred_distances = _retrieve_lanes(
+                conn,
+                query,
+                query_vector,
+                preferred_sql,
+                preferred_values,
+                settings,
+            )
+            lanes = preferred_lanes + lanes
+            vector_distances.update(preferred_distances)
 
     # 서로 다른 점수 단위를 순위 기반 RRF로 결합한다.
     fused = reciprocal_rank_fusion(lanes, k=retrieval.rrf_k)
@@ -374,11 +424,18 @@ def search(
             neighbors = _fetch_neighbor_content(conn, by_id, selected)
 
     results = []
+    preferred_asset_id_values = {
+        str(asset_id) for asset_id in (preferred_asset_ids or [])
+    }
     for chunk_id in selected:
         row = dict(by_id[chunk_id])
         row["rrf_score"] = rrf_scores[chunk_id]
         row["rerank_score"] = rerank_scores.get(chunk_id)
         row["vector_distance"] = vector_distances.get(chunk_id)
+        row["preferred_document"] = bool(
+            preferred_asset_id_values
+            and str(row["asset_id"]) in preferred_asset_id_values
+        )
         row["neighbor_context"] = [
             neighbors[neighbor_id]
             for neighbor_id in (row["previous_chunk_id"], row["next_chunk_id"])

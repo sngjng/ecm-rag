@@ -382,31 +382,6 @@
         }
       }
 
-      .suggestions {
-        display: flex;
-        max-width: 860px;
-        margin: 14px auto 0;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-
-      .suggestion {
-        padding: 8px 12px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        color: var(--muted);
-        background: rgba(255, 255, 255, 0.72);
-        font-size: 11px;
-        cursor: pointer;
-      }
-
-      .suggestion:hover {
-        border-color: var(--primary);
-        color: var(--primary);
-        background: var(--primary-soft);
-      }
-
       .conversation {
         display: grid;
         max-width: 920px;
@@ -635,6 +610,19 @@
         color: var(--subtle);
         font-size: 11px;
         line-height: 1.5;
+      }
+
+      .result-card__chunk-count {
+        display: inline-flex;
+        margin-top: 7px;
+        padding: 4px 8px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--surface-soft);
+        font-size: 10px;
+        font-weight: 800;
       }
 
       .result-card__score {
@@ -925,6 +913,398 @@
         background: #fff;
       }
 
+      /* 데스크톱 업무 화면: 좌측 메뉴 / 중앙 대화 / 우측 검색 결과 */
+      .topbar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 224px;
+        border-right: 1px solid var(--line);
+        border-bottom: 0;
+        background: rgba(255, 255, 255, 0.94);
+      }
+
+      .topbar__inner {
+        height: 100%;
+        min-height: 0;
+        padding: 24px 16px 18px;
+        align-items: stretch;
+        flex-direction: column;
+        justify-content: flex-start;
+      }
+
+      .brand {
+        padding: 4px 8px 22px;
+        flex-wrap: wrap;
+      }
+
+      .brand__logo {
+        width: 88px;
+      }
+
+      .brand__divider {
+        display: none;
+      }
+
+      .brand__label {
+        width: 100%;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .topbar__actions {
+        min-height: 0;
+        flex: 1;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .upload-link {
+        width: 100%;
+        min-height: 42px;
+        padding: 10px 12px;
+        border-color: transparent;
+        color: var(--text);
+        background: transparent;
+        font-size: 12px;
+        justify-content: flex-start;
+      }
+
+      .upload-link:hover {
+        border-color: var(--line);
+        color: var(--primary);
+        background: var(--primary-soft);
+        transform: none;
+      }
+
+      .user-chip {
+        width: 100%;
+        margin-top: auto;
+        border-radius: 13px;
+      }
+
+      .user-chip__text {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .user-chip__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .logout-button {
+        width: 100%;
+        min-height: 38px;
+      }
+
+      .page {
+        display: grid;
+        width: auto;
+        height: 100vh;
+        min-height: 0;
+        margin: 0 0 0 224px;
+        padding: 0;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 410px);
+        overflow: hidden;
+      }
+
+      .workspace {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        background: rgba(248, 250, 252, 0.48);
+        grid-template-rows: minmax(0, 1fr) auto;
+        overflow-x: hidden;
+      }
+
+      .workspace__scroll {
+        min-width: 0;
+        min-height: 0;
+        padding: 38px 34px 42px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+      }
+
+      .workspace__composer {
+        position: relative;
+        z-index: 12;
+        min-width: 0;
+        padding: 8px 28px 20px;
+        overflow-x: hidden;
+        background: linear-gradient(
+          to bottom,
+          rgba(245, 247, 251, 0),
+          rgba(245, 247, 251, 0.96) 20%,
+          var(--bg) 52%
+        );
+      }
+
+      .hero {
+        max-width: 760px;
+        margin: 0 auto 26px;
+        text-align: left;
+      }
+
+      h1 {
+        font-size: clamp(27px, 3vw, 38px);
+      }
+
+      .hero__description {
+        margin-top: 10px;
+        font-size: 13px;
+      }
+
+      .asset-summary {
+        max-width: none;
+        margin-top: 18px;
+      }
+
+      .asset-count {
+        padding: 10px 12px;
+      }
+
+      .asset-count__value {
+        font-size: 17px;
+      }
+
+      .conversation {
+        width: 100%;
+        min-width: 0;
+        max-width: 920px;
+        margin: 0 auto;
+        padding-bottom: 20px;
+      }
+
+      .prompt-panel {
+        width: 100%;
+        min-width: 0;
+        max-width: 920px;
+        padding: 7px;
+        border-radius: 18px;
+        box-shadow: 0 16px 46px rgba(28, 39, 67, 0.13);
+      }
+
+      .prompt-input {
+        min-height: 62px;
+        max-height: 160px;
+        padding: 13px 15px 7px;
+        resize: none;
+        font-size: 14px;
+      }
+
+      .prompt-actions {
+        padding: 5px 6px;
+      }
+
+      .search-button {
+        min-height: 40px;
+      }
+
+      .error-panel {
+        max-width: 920px;
+        margin: 0 auto 18px;
+      }
+
+      .results-section {
+        min-width: 0;
+        min-height: 0;
+        max-width: none;
+        margin: 0;
+        padding: 0 18px 28px;
+        border-left: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+      }
+
+      #results,
+      .result-list,
+      .result-card,
+      .result-card__head,
+      .result-card__identity,
+      .result-card__actions {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .result-card__head {
+        flex-wrap: wrap;
+      }
+
+      .result-card__title,
+      .result-card__meta,
+      .result-card__content,
+      .result-card__download {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .result-card__download {
+        white-space: normal;
+      }
+
+      .results-header {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        min-height: 74px;
+        margin: 0 -18px 14px;
+        padding: 24px 20px 14px;
+        border-bottom: 1px solid rgba(227, 232, 241, 0.84);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(14px);
+      }
+
+      .result-list {
+        gap: 10px;
+      }
+
+      .result-card {
+        padding: 16px;
+        border-radius: 14px;
+      }
+
+      .result-card__content {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 7;
+      }
+
+      .document-diagram,
+      .message__bubble > .document-diagram {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      .message,
+      .message__bubble,
+      .message__text,
+      .document-diagram__header,
+      .document-diagram__description {
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .document-diagram__mermaid {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      .document-diagram__mermaid svg {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .document-diagram__groups {
+        grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+        grid-auto-columns: auto;
+        grid-auto-flow: row;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      @media (max-width: 1120px) {
+        .topbar {
+          width: 196px;
+        }
+
+        .page {
+          margin-left: 196px;
+          grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+        }
+
+        .workspace__scroll {
+          padding-right: 24px;
+          padding-left: 24px;
+        }
+
+        .workspace__composer {
+          padding-right: 20px;
+          padding-left: 20px;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .topbar {
+          position: sticky;
+          inset: 0 auto auto;
+          width: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .topbar__inner {
+          height: auto;
+          min-height: 60px;
+          padding: 0 18px;
+          align-items: center;
+          flex-direction: row;
+          justify-content: space-between;
+        }
+
+        .brand {
+          padding: 0;
+          flex-wrap: nowrap;
+        }
+
+        .brand__label {
+          width: auto;
+          margin: 0;
+        }
+
+        .topbar__actions {
+          min-height: auto;
+          flex: 0 1 auto;
+          align-items: center;
+          flex-direction: row;
+        }
+
+        .upload-link {
+          width: auto;
+        }
+
+        .user-chip {
+          width: auto;
+          margin-top: 0;
+        }
+
+        .logout-button {
+          width: auto;
+        }
+
+        .page {
+          display: block;
+          height: auto;
+          margin-left: 0;
+          overflow: visible;
+        }
+
+        .workspace {
+          height: calc(100vh - 61px);
+        }
+
+        .results-section {
+          min-height: 420px;
+          max-height: none;
+          padding: 0 20px 40px;
+          border-top: 1px solid var(--line);
+          border-left: 0;
+          overflow: visible;
+        }
+      }
+
       @media (max-width: 720px) {
         .diagram-lightbox {
           padding: 8px;
@@ -990,17 +1370,17 @@
         }
 
         .page {
-          padding: 42px 16px 60px;
+          padding: 0;
         }
 
-        .prompt-actions,
         .result-card__head {
           align-items: stretch;
           flex-direction: column;
         }
 
         .search-button {
-          width: 100%;
+          width: auto;
+          min-width: 52px;
         }
 
         .asset-summary {
@@ -1025,6 +1405,30 @@
 
         .document-diagram__groups {
           grid-auto-columns: minmax(165px, 82vw);
+        }
+
+        .workspace__scroll {
+          padding: 26px 16px 34px;
+        }
+
+        .workspace__composer {
+          padding: 6px 12px 12px;
+        }
+
+        .prompt-panel {
+          border-radius: 16px;
+        }
+
+        .prompt-hint {
+          display: none;
+        }
+
+        .hero {
+          margin-bottom: 22px;
+        }
+
+        .asset-summary {
+          gap: 7px;
         }
       }
 
@@ -1060,13 +1464,34 @@
           background: rgba(13, 18, 32, 0.84);
         }
 
+        .workspace {
+          background: rgba(13, 18, 32, 0.46);
+        }
+
+        .workspace__composer {
+          background: linear-gradient(
+            to bottom,
+            rgba(13, 18, 32, 0),
+            rgba(13, 18, 32, 0.96) 20%,
+            var(--bg) 52%
+          );
+        }
+
+        .results-section {
+          background: rgba(21, 27, 43, 0.78);
+        }
+
+        .results-header {
+          border-bottom-color: rgba(59, 70, 95, 0.8);
+          background: rgba(21, 27, 43, 0.92);
+        }
+
         .brand__logo {
           padding: 3px 5px;
           border-radius: 6px;
           background: #fff;
         }
 
-        .suggestion,
         .empty-state {
           background: rgba(21, 27, 43, 0.7);
         }
@@ -1171,130 +1596,135 @@
     </header>
 
     <main class="page">
-      <section class="hero">
-        <h1>어떤 문서를 찾으시나요?</h1>
-        <p class="hero__description">
-          등록된 문서자산을 자연어로 검색하고 관련 원문과 출처를 확인합니다.
-        </p>
-        <dl
-          id="asset-summary"
-          class="asset-summary"
-          aria-label="자산 유형별 등록 현황"
-        >
-          <div class="asset-count">
-            <dt class="asset-count__label">일반 문서</dt>
-            <dd class="asset-count__value">
-              <span data-asset-count="document">—</span
-              ><span class="asset-count__unit">건</span>
-            </dd>
-          </div>
-          <div class="asset-count">
-            <dt class="asset-count__label">장애 사례</dt>
-            <dd class="asset-count__value">
-              <span data-asset-count="incident">—</span
-              ><span class="asset-count__unit">건</span>
-            </dd>
-          </div>
-          <div class="asset-count">
-            <dt class="asset-count__label">오류 로그</dt>
-            <dd class="asset-count__value">
-              <span data-asset-count="error_trace">—</span
-              ><span class="asset-count__unit">건</span>
-            </dd>
-          </div>
-          <div class="asset-count">
-            <dt class="asset-count__label">소스 코드</dt>
-            <dd class="asset-count__value">
-              <span data-asset-count="source_code">—</span
-              ><span class="asset-count__unit">건</span>
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      <form id="search-form" class="prompt-panel">
-        <label class="assistive-status" for="query">문서 검색 질문</label>
-        <textarea
-          id="query"
-          class="prompt-input"
-          rows="3"
-          minlength="2"
-          maxlength="2000"
-          placeholder="예: 선택적 복리후생의 의료비 지원 기준을 찾아줘"
-          required
-        ></textarea>
-        <div class="prompt-actions">
-          <p class="prompt-hint">Enter로 검색 · Shift+Enter로 줄바꿈</p>
-          <button id="search-button" class="search-button" type="submit">
-            <span class="spinner" aria-hidden="true"></span>
-            <span id="search-button-label">질문하기</span>
-          </button>
-        </div>
-      </form>
-
-      <div class="suggestions" aria-label="추천 검색어">
-        <button class="suggestion" type="button">의료비 선택적복리후생</button>
-        <button class="suggestion" type="button">
-          2027학년도 전형별 모집인원
-        </button>
-        <button class="suggestion" type="button">최근 등록된 문서 내용</button>
-      </div>
-
-      <p id="error-panel" class="error-panel" role="alert"></p>
-
-      <section
-        id="conversation"
-        class="conversation"
-        aria-label="문서 질의응답 대화"
-      >
-        <div class="message message--assistant">
-          <span class="message__avatar" aria-hidden="true">AI</span>
-          <div class="message__bubble">
-            <span class="message__label">문서자산 AI</span>
-            <p class="message__text">
-              등록된 문서를 근거로 답변해 드립니다. 답변 아래 검색 결과를
-              클릭하면 원본 문서를 내려받을 수 있습니다.
+      <section class="workspace" aria-label="문서 질의응답 작업 영역">
+        <div class="workspace__scroll">
+          <section class="hero">
+            <h1>어떤 문서를 찾으시나요?</h1>
+            <p class="hero__description">
+              등록된 문서자산을 자연어로 검색하고 관련 원문과 출처를 확인합니다.
             </p>
-          </div>
-        </div>
-      </section>
+            <dl
+              id="asset-summary"
+              class="asset-summary"
+              aria-label="자산 유형별 등록 현황"
+            >
+              <div class="asset-count">
+                <dt class="asset-count__label">일반 문서</dt>
+                <dd class="asset-count__value">
+                  <span data-asset-count="document">—</span
+                  ><span class="asset-count__unit">건</span>
+                </dd>
+              </div>
+              <div class="asset-count">
+                <dt class="asset-count__label">장애 사례</dt>
+                <dd class="asset-count__value">
+                  <span data-asset-count="incident">—</span
+                  ><span class="asset-count__unit">건</span>
+                </dd>
+              </div>
+              <div class="asset-count">
+                <dt class="asset-count__label">오류 로그</dt>
+                <dd class="asset-count__value">
+                  <span data-asset-count="error_trace">—</span
+                  ><span class="asset-count__unit">건</span>
+                </dd>
+              </div>
+              <div class="asset-count">
+                <dt class="asset-count__label">소스 코드</dt>
+                <dd class="asset-count__value">
+                  <span data-asset-count="source_code">—</span
+                  ><span class="asset-count__unit">건</span>
+                </dd>
+              </div>
+            </dl>
+          </section>
 
-      <section
-        id="document-diagram"
-        class="document-diagram"
-        aria-labelledby="document-diagram-title"
-        hidden
-      >
-        <div class="document-diagram__header">
-          <div>
-            <h2 id="document-diagram-title" class="document-diagram__title">
-              문서 내용 도식화
-            </h2>
-            <p
-              id="document-diagram-description"
-              class="document-diagram__description"
-            ></p>
-          </div>
-          <span id="document-diagram-badge" class="document-diagram__badge">
-            자동 구성
-          </span>
+          <p id="error-panel" class="error-panel" role="alert"></p>
+
+          <section
+            id="conversation"
+            class="conversation"
+            aria-label="문서 질의응답 대화"
+          >
+            <div class="message message--assistant">
+              <span class="message__avatar" aria-hidden="true">AI</span>
+              <div class="message__bubble">
+                <span class="message__label">문서자산 AI</span>
+                <p class="message__text">
+                  등록된 문서를 근거로 답변해 드립니다. 우측 검색 결과를
+                  클릭하면 원본 문서를 내려받을 수 있습니다.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section
+            id="document-diagram"
+            class="document-diagram"
+            aria-labelledby="document-diagram-title"
+            hidden
+          >
+            <div class="document-diagram__header">
+              <div>
+                <h2 id="document-diagram-title" class="document-diagram__title">
+                  문서 내용 도식화
+                </h2>
+                <p
+                  id="document-diagram-description"
+                  class="document-diagram__description"
+                ></p>
+              </div>
+              <span id="document-diagram-badge" class="document-diagram__badge">
+                자동 구성
+              </span>
+            </div>
+            <div
+              id="document-diagram-mermaid"
+              class="document-diagram__mermaid"
+              role="button"
+              tabindex="0"
+              aria-label="문서 구성요소 관계 순서도를 크게 보기"
+              title="클릭하여 크게 보기"
+              hidden
+            ></div>
+            <div
+              id="document-diagram-fallback"
+              class="document-diagram__fallback"
+              hidden
+            >
+              <div
+                id="document-diagram-groups"
+                class="document-diagram__groups"
+              ></div>
+              <div
+                id="document-diagram-relations"
+                class="document-diagram__relations"
+                aria-label="구성요소 연결 관계"
+              ></div>
+            </div>
+          </section>
         </div>
-        <div
-          id="document-diagram-mermaid"
-          class="document-diagram__mermaid"
-          role="button"
-          tabindex="0"
-          aria-label="문서 구성요소 관계 순서도를 크게 보기"
-          title="클릭하여 크게 보기"
-          hidden
-        ></div>
-        <div id="document-diagram-fallback" class="document-diagram__fallback" hidden>
-          <div id="document-diagram-groups" class="document-diagram__groups"></div>
-          <div
-            id="document-diagram-relations"
-            class="document-diagram__relations"
-            aria-label="구성요소 연결 관계"
-          ></div>
+
+        <div class="workspace__composer">
+          <form id="search-form" class="prompt-panel">
+            <label class="assistive-status" for="query">문서 검색 질문</label>
+            <textarea
+              id="query"
+              class="prompt-input"
+              rows="2"
+              minlength="2"
+              maxlength="2000"
+              placeholder="등록된 문서에 대해 질문해 주세요"
+              required
+            ></textarea>
+            <div class="prompt-actions">
+              <p class="prompt-hint">Enter로 검색 · Shift+Enter로 줄바꿈</p>
+              <button id="search-button" class="search-button" type="submit">
+                <span class="spinner" aria-hidden="true"></span>
+                <span id="search-button-label">질문하기</span>
+              </button>
+            </div>
+          </form>
         </div>
       </section>
 
@@ -1391,6 +1821,7 @@
         "#diagram-lightbox-canvas",
       );
       const conversationHistory = [];
+      let preferredAssetIds = [];
       let mermaidRenderSequence = 0;
       let diagramLightboxReturnFocus = null;
 
@@ -1642,6 +2073,12 @@
         meta.className = "result-card__meta";
         meta.textContent = sourceMeta(result) || "출처 정보 없음";
 
+        const chunkCount = document.createElement("span");
+        chunkCount.className = "result-card__chunk-count";
+        chunkCount.textContent = `관련 청크 ${result.matched_chunk_count || 1}건`;
+        chunkCount.title =
+          "이 문서에서 현재 질문과 관련된 것으로 검색된 청크 수입니다.";
+
         const score = document.createElement("span");
         score.className = "result-card__score";
         score.textContent = `RRF ${(result.rrf_score || 0).toFixed(4)}`;
@@ -1685,17 +2122,41 @@
 
         actions.append(originalDownload, markdownView);
 
-        identity.append(title, meta);
+        identity.append(title, meta, chunkCount);
         head.append(rank, identity, score);
         article.append(head, content, actions);
         return article;
       }
 
-      function renderResults(results) {
-        resultsContainer.replaceChildren();
-        resultsCount.textContent = `${results.length}건`;
+      function uniqueDocumentResults(results) {
+        const documents = new Map();
+        results.forEach((result) => {
+          // 검색 API는 답변 근거를 청크 단위로 반환한다. 같은 문서의 여러 청크가
+          // 포함되어도 검색 순위가 가장 높은 첫 번째 청크를 대표 내용으로 사용하고,
+          // 같은 문서에서 검색된 전체 청크 수는 카드 배지에 함께 표시한다.
+          const documentKey =
+            result.asset_id ||
+            result.version_id ||
+            `${result.title || ""}\u0000${result.source_filename || ""}`;
+          const document = documents.get(documentKey);
+          if (document) {
+            document.matched_chunk_count += 1;
+            return;
+          }
+          documents.set(documentKey, {
+            ...result,
+            matched_chunk_count: 1,
+          });
+        });
+        return Array.from(documents.values());
+      }
 
-        if (results.length === 0) {
+      function renderResults(results) {
+        const documentResults = uniqueDocumentResults(results);
+        resultsContainer.replaceChildren();
+        resultsCount.textContent = `${documentResults.length}개 문서`;
+
+        if (documentResults.length === 0) {
           const empty = document.createElement("div");
           empty.className = "empty-state";
           empty.innerHTML =
@@ -1706,7 +2167,7 @@
 
         const list = document.createElement("div");
         list.className = "result-list";
-        results.forEach((result, index) => {
+        documentResults.forEach((result, index) => {
           list.append(createResultCard(result, index));
         });
         resultsContainer.append(list);
@@ -1888,6 +2349,7 @@
               limit: 8,
               include_diagram: true,
               history: conversationHistory.slice(-8),
+              preferred_asset_ids: preferredAssetIds,
             }),
           });
 
@@ -1906,6 +2368,13 @@
           }
 
           const results = payload.results || [];
+          if (payload.evidence_status === "sufficient") {
+            preferredAssetIds = Array.from(
+              new Set(results.map((result) => result.asset_id).filter(Boolean)),
+            ).slice(0, 3);
+          } else {
+            preferredAssetIds = [];
+          }
           thinkingMessage.remove();
           const assistantMessage = appendMessage(
             "assistant",
@@ -1949,27 +2418,28 @@
         }
       }
 
+      function resizeQueryInput() {
+        queryInput.style.height = "auto";
+        queryInput.style.height = `${Math.min(queryInput.scrollHeight, 160)}px`;
+      }
+
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         const query = queryInput.value.trim();
         if (query.length >= 2) {
           queryInput.value = "";
+          resizeQueryInput();
           askDocuments(query);
         }
       });
+
+      queryInput.addEventListener("input", resizeQueryInput);
 
       queryInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           form.requestSubmit();
         }
-      });
-
-      document.querySelectorAll(".suggestion").forEach((button) => {
-        button.addEventListener("click", () => {
-          queryInput.value = button.textContent.trim();
-          form.requestSubmit();
-        });
       });
 
       document.querySelector("#logout").addEventListener("click", async () => {

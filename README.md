@@ -326,6 +326,11 @@ curl -b session.cookie \
 `sql/008_incident_timestamp_template.sql`을 적용해야 합니다. `bin/start.sh`는 시작할 때
 해당 migration을 자동 확인합니다.
 
+로그분석 AI가 정상적으로 가이드를 생성하면 해당 답변 카드 우측 하단의 `Word 다운로드`
+버튼으로 화면의 가이드 결과를 그대로 `.docx`로 내려받을 수 있습니다. 별도의 통계표나
+차트를 추가하지 않으며 제목·목록·코드블록 등 답변 순서와 문구를 유지합니다. 별도
+라이브러리 추가 없이 운영 requirements의 `python-docx`를 사용합니다.
+
 ### 내부망 외부 시스템 질의응답 API
 
 `POST /api/v1/external/answer`는 세션 쿠키나 API 키 없이 내부 시스템에서 호출하는
@@ -360,7 +365,9 @@ JSON 요청에서 `include_chunks=true`(기본값)를 사용하면 응답에 `an
 `generation_status`, `results`가 포함됩니다. `false`이면 동일하게 검색 청크로 LLM 답변을
 생성하되 HTTP 응답에서 `results`만 제외합니다. 응답의 `chunks_included`로 실제 반환 여부를
 확인할 수 있습니다. `results`는 답변에 사용한 문서 청크와 자산·버전·페이지 등의 출처
-정보입니다. 스택트레이스로 판별되면 추가로
+정보입니다. 후속 질문은 첫 응답의 `results[].asset_id`를 `preferred_asset_ids` 배열로
+전달하면 해당 문서를 우선 검색하면서 전체 문서 검색도 병행합니다. 브라우저 조회 화면은
+근거가 충분한 직전 답변의 상위 문서 ID를 자동으로 전달합니다. 스택트레이스로 판별되면 추가로
 `request_type=stack_trace`와 `stack_trace_analysis`가 반환됩니다. 분석 결과에는 fingerprint,
 주 예외, 최하위 원인, 오류 코드, 전체 호출 프레임 및 애플리케이션 호출 프레임이 포함됩니다.
 원문을 `query` 또는 `text/plain`으로 직접 보내도 자동 판별되지만, 외부 시스템 연동에서는

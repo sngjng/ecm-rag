@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from service.config import get_settings
@@ -20,6 +21,27 @@ DECOMPILED_LINE_NOTICE = (
     "라인 번호와 표시된 라인 범위가 다를 수 있습니다. 패키지·클래스·메서드를 기준으로 "
     "확인해 주세요."
 )
+
+# 벡터 검색은 항상 가장 가까운 청크를 반환할 수 있으므로 검색 결과가 존재한다는 사실만으로
+# 질문과 문서가 관련 있다고 단정할 수 없다. LLM이 근거 부족을 명시한 답변에는 해당 문서의
+# GraphRAG 관계도를 붙이지 않아, 무관한 문서 구성도가 답변 근거처럼 보이는 것을 막는다.
+INSUFFICIENT_EVIDENCE_PATTERNS = (
+    r"확인할 수 없",
+    r"찾을 수 없",
+    r"포함(?:되어|돼) 있지 않",
+    r"포함되지 않",
+    r"관련 (?:내용|정보|문서).{0,20}(?:없|부족)",
+    r"(?:문서|근거|정보).{0,20}부족",
+    r"does not contain",
+    r"not found in (?:the )?(?:documents|sources)",
+    r"insufficient (?:evidence|context)",
+)
+
+
+def _answer_indicates_insufficient_evidence(answer: str) -> bool:
+    """LLM 답변이 등록 문서에서 근거를 찾지 못했다고 명시했는지 판별한다."""
+    normalized = " ".join(str(answer or "").split()).lower()
+    return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in INSUFFICIENT_EVIDENCE_PATTERNS)
 
 
 def _uses_decompiled_source(results: list[dict[str, Any]]) -> bool:
@@ -55,6 +77,7 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
         product=request.product,
         include_obsolete=request.include_obsolete,
         limit=min(limit, llm_settings.context_top_k),
+        preferred_asset_ids=request.preferred_asset_ids,
     )
     if not results:
         return {
@@ -63,9 +86,13 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
                 "본 서비스는 등록 문서와 관련된 질문에만 답변할 수 있습니다."
             ),
             "generation_status": "out_of_scope",
+            "evidence_status": "insufficient",
             "notices": [],
             "results": [],
             "diagram": None,
+            "preferred_asset_ids_applied": [
+                str(asset_id) for asset_id in request.preferred_asset_ids
+            ],
         }
     graph = {"entities": [], "relations": []}
     if settings.graph_rag.enabled:
@@ -92,7 +119,16 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
             "아래 검색 결과에서 원문 내용을 확인해 주세요."
         )
         generation_status = "unavailable"
-    diagram = build_document_diagram(graph) if request.include_diagram else None
+    evidence_sufficient = (
+        generation_status == "completed"
+        and not _answer_indicates_insufficient_evidence(answer)
+    )
+    diagram = None
+    if (
+        request.include_diagram
+        and evidence_sufficient
+    ):
+        diagram = build_document_diagram(graph)
     notices = []
     if _uses_decompiled_source(results):
         notices.append(DECOMPILED_LINE_NOTICE)
@@ -102,7 +138,11 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
     return {
         "answer": answer,
         "generation_status": generation_status,
+        "evidence_status": "sufficient" if evidence_sufficient else "insufficient",
         "notices": notices,
         "results": results,
         "diagram": diagram,
+        "preferred_asset_ids_applied": [
+            str(asset_id) for asset_id in request.preferred_asset_ids
+        ],
     }

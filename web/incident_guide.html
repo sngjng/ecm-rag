@@ -510,6 +510,35 @@
         word-break: break-word;
       }
 
+      .message__actions {
+        display: flex;
+        margin-top: 12px;
+        justify-content: flex-end;
+      }
+
+      .message__bubble .message__download {
+        width: auto;
+        min-height: 32px;
+        padding: 0 11px;
+        border: 1px solid #cbd5f5;
+        border-radius: 9px;
+        color: var(--primary);
+        background: #f8f9ff;
+        font-size: 12px;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      .message__bubble .message__download:hover {
+        border-color: var(--primary);
+        background: #eef1ff;
+      }
+
+      .message__bubble .message__download:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
       .typing {
         color: var(--muted);
       }
@@ -1054,13 +1083,18 @@
             );
           }
           thinkingMessage.remove();
-          appendMessage(
+          const answerMessage = appendMessage(
             "assistant",
             payload.answer || "해결 가이드를 생성하지 못했습니다.",
             payload.generation_status,
           );
           renderAnalysis(payload.analysis);
           renderIncidentDiagram(payload.diagram);
+          if (payload.generation_status === "completed") {
+            appendReportDownload(answerMessage, {
+              answer: payload.answer || "",
+            });
+          }
           conversationHistory.push(
             { role: "user", content: userLabel },
             { role: "assistant", content: payload.answer || "답변 생성 실패" },
@@ -1075,6 +1109,62 @@
           liveStatus.textContent = `분석 실패: ${detail}`;
         } finally {
           setLoading(false);
+        }
+      }
+
+      function appendReportDownload(message, reportPayload) {
+        const bubble = message.querySelector(".message__bubble");
+        const actions = document.createElement("div");
+        actions.className = "message__actions";
+        const button = document.createElement("button");
+        button.className = "message__download";
+        button.type = "button";
+        button.textContent = "↓ Word 다운로드";
+        button.addEventListener("click", () => downloadWordReport(button, reportPayload));
+        actions.append(button);
+        bubble.append(actions);
+      }
+
+      async function downloadWordReport(button, reportPayload) {
+        button.disabled = true;
+        const originalLabel = button.textContent;
+        button.textContent = "생성 중…";
+        showError("");
+        try {
+          const response = await fetch("/api/v1/incident-guide/report", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(reportPayload),
+          });
+          if (response.status === 401) {
+            window.location.replace("/login");
+            return;
+          }
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Word 보고서 생성에 실패했습니다.");
+          }
+          const blob = await response.blob();
+          const disposition = response.headers.get("Content-Disposition") || "";
+          const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+          const filename = encodedName
+            ? decodeURIComponent(encodedName)
+            : "로그분석_조치가이드.docx";
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          document.body.append(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          liveStatus.textContent = "Word 보고서 다운로드를 시작했습니다.";
+        } catch (error) {
+          showError(error instanceof Error ? error.message : String(error));
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
         }
       }
 

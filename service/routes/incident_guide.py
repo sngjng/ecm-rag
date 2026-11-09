@@ -1,14 +1,22 @@
 """인증 사용자용 장애 로그 분석과 관리자 전용 템플릿 관리 endpoint."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from service.dependencies import authorize, authorize_admin
 from service.incident_guidance import generate_incident_guide
+from service.incident_report import build_incident_report
 from service.repositories import incident_guide as incident_repository
-from service.schemas import IncidentGuideRequest, IncidentTemplateUpdate
+from service.schemas import (
+    IncidentGuideRequest,
+    IncidentReportRequest,
+    IncidentTemplateUpdate,
+)
 
 router = APIRouter(prefix="/incident-guide", tags=["incident-guide"])
 
@@ -44,3 +52,28 @@ def analyze_incident(
     if not template:
         raise HTTPException(503, "장애 해결 가이드 템플릿이 준비되지 않았습니다")
     return generate_incident_guide(payload, template["content"])
+
+
+@router.post("/report")
+def download_incident_report(
+    payload: IncidentReportRequest,
+    _user: Annotated[dict, Depends(authorize)],
+):
+    """화면에 표시된 가이드 답변을 편집 가능한 Word 문서로 반환한다."""
+    generated_at = datetime.now()
+    content = build_incident_report(answer=payload.answer)
+    filename = f"로그분석_조치가이드_{generated_at:%Y%m%d_%H%M%S}.docx"
+    return Response(
+        content=content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        headers={
+            "Content-Disposition": (
+                "attachment; filename=incident-analysis-report.docx; "
+                f"filename*=UTF-8''{quote(filename)}"
+            ),
+            "Content-Length": str(len(content)),
+        },
+    )
