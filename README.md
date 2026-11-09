@@ -403,6 +403,29 @@ ECM_RAG_PASSWORD=test .venv/bin/python scripts/query_uploaded_documents.py \
   "의료비 선택적복리후생" --asset-type document --limit 3
 ```
 
+## PostgreSQL 경량 GraphRAG
+
+별도 Graph DB나 Microsoft GraphRAG 패키지를 추가하지 않고 기존 PostgreSQL에 문서의
+시스템·서버·애플리케이션·API·DB 엔터티와 방향 관계를 저장합니다. 각 엔터티와 관계는
+원문 청크 FK 근거를 가지며, pgvector/FTS 검색 결과에서 1-hop 관계만 확장해 답변 근거와
+조회 화면 구성도에 사용합니다. 조회 화면은 폐쇄망 로컬 자원인 Mermaid 11.17.2로
+아키텍처 관계를 좌→우, 처리 흐름을 위→아래 순서도로 표시하며 Mermaid 렌더링 실패 시
+기존 카드형 구성도로 자동 전환합니다.
+
+`bin/start.sh`가 `009_lightweight_graphrag.sql`을 자동 적용합니다. 신규 업로드는 별도
+작업 없이 자동 추출하며, 기존 문서는 다음 명령으로 한 번 재구축합니다.
+
+```bash
+set -a; source .env; set +a
+"$ECM_RAG_PYTHON" -m scripts.backfill_graphrag --limit 3
+"$ECM_RAG_PYTHON" -m scripts.backfill_graphrag
+```
+
+환경별 활성화 값은 `.env`의 `RAG_GRAPH_RAG_ENABLED=true`입니다. 테스트 Ollama는
+`RAG_GRAPH_RAG_PROVIDER=ollama_generate`, 운영 OpenAI 호환 LLM은
+`RAG_GRAPH_RAG_PROVIDER=openai_compatible`을 사용합니다. 그래프 추출 LLM 장애가 발생해도
+기존 문서 파싱·임베딩 적재는 완료되며 작업 report에 실패 유형을 남깁니다.
+
 ## `login.py` 사내 EAI 로그인
 
 FastAPI의 `POST /api/v1/auth/login`은 `service/login.py`에서 JPype로 사내 EAI Java VO를

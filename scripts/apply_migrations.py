@@ -22,6 +22,7 @@ MIGRATIONS = (
     ROOT / "sql" / "006_rename_general_role_to_viewer.sql",
     ROOT / "sql" / "007_incident_guide_template.sql",
     ROOT / "sql" / "008_incident_timestamp_template.sql",
+    ROOT / "sql" / "009_lightweight_graphrag.sql",
 )
 
 

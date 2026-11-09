@@ -5,9 +5,11 @@ import logging
 from typing import Any
 
 from service.config import get_settings
+from service.document_diagram import build_document_diagram, graph_context_text
 from service.llm import LlmGenerationError, generate_answer
 from service.schemas import ChatRequest
 from service.search import search
+from service.repositories.knowledge_graph import fetch_subgraph
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,8 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
     브라우저 채팅과 외부 연동 API가 완전히 같은 검색·답변 정책을 사용하도록 HTTP
     router에서 분리했다. LLM 장애가 발생해도 PostgreSQL 검색 결과는 보존한다.
     """
-    llm_settings = get_settings().models.llm
+    settings = get_settings()
+    llm_settings = settings.models.llm
     # LLM에 전달할 검색 근거 수를 모델 컨텍스트 정책보다 크게 허용하지 않는다. 외부
     # 호출자가 큰 limit를 보내도 context_top_k가 최종 상한으로 동작한다.
     limit = request.limit or llm_settings.context_top_k
@@ -62,7 +65,19 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
             "generation_status": "out_of_scope",
             "notices": [],
             "results": [],
+            "diagram": None,
         }
+    graph = {"entities": [], "relations": []}
+    if settings.graph_rag.enabled:
+        graph = fetch_subgraph(
+            [str(result["chunk_id"]) for result in results if result.get("chunk_id")],
+            max_entities=settings.graph_rag.query_max_entities,
+            max_relations=settings.graph_rag.query_max_relations,
+        )
+        relation_context = graph_context_text(graph)
+        if relation_context:
+            # 동일 관계를 모든 청크에 반복하지 않고 최상위 근거에 한 번만 추가한다.
+            results[0].setdefault("neighbor_context", []).append(relation_context)
     # 검색 성공과 LLM 장애를 분리한다. LLM만 실패하면 HTTP 오류로 근거까지 버리지 않고
     # generation_status=unavailable과 검색 결과를 반환해 호출 시스템이 대체 표시할 수 있다.
     try:
@@ -77,6 +92,7 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
             "아래 검색 결과에서 원문 내용을 확인해 주세요."
         )
         generation_status = "unavailable"
+    diagram = build_document_diagram(graph) if request.include_diagram else None
     notices = []
     if _uses_decompiled_source(results):
         notices.append(DECOMPILED_LINE_NOTICE)
@@ -88,4 +104,5 @@ def answer_documents(request: ChatRequest) -> dict[str, Any]:
         "generation_status": generation_status,
         "notices": notices,
         "results": results,
+        "diagram": diagram,
     }

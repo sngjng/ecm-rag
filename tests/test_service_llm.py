@@ -1,4 +1,5 @@
 """근거 기반 LLM 요청 조립의 네트워크 비의존 단위 테스트."""
+
 from types import SimpleNamespace
 
 import httpx
@@ -9,9 +10,7 @@ from service.schemas import ChatHistoryMessage
 
 
 def test_chat_completions_url_accepts_api_root_and_full_endpoint():
-    assert _chat_completions_url("http://llm.local/v1") == (
-        "http://llm.local/v1/chat/completions"
-    )
+    assert _chat_completions_url("http://llm.local/v1") == ("http://llm.local/v1/chat/completions")
     assert _chat_completions_url("http://llm.local/v1/chat/completions") == (
         "http://llm.local/v1/chat/completions"
     )
@@ -19,15 +18,17 @@ def test_chat_completions_url_accepts_api_root_and_full_endpoint():
 
 def test_format_context_numbers_sources_and_honors_character_limit():
     context = _format_context(
-        [{
-            "title": "운영 지침",
-            "source_filename": "guide.pdf",
-            "version_label": "2",
-            "page_start": 3,
-            "page_end": 4,
-            "content": "장애 대응 절차 본문",
-            "neighbor_context": ["인접 문맥"],
-        }],
+        [
+            {
+                "title": "운영 지침",
+                "source_filename": "guide.pdf",
+                "version_label": "2",
+                "page_start": 3,
+                "page_end": 4,
+                "content": "장애 대응 절차 본문",
+                "neighbor_context": ["인접 문맥"],
+            }
+        ],
         max_characters=200,
     )
 
@@ -49,13 +50,15 @@ def test_message_budget_limits_code_context_and_recent_history_for_8k_model():
     )
     messages, budget = _build_messages(
         "결제 오류의 원인을 알려줘",
-        [{
-            "title": "결제 소스",
-            "source_filename": "payment.jar",
-            "version_label": "1",
-            "content": "public class PaymentService {" + "x" * 30000 + "}",
-            "neighbor_context": [],
-        }],
+        [
+            {
+                "title": "결제 소스",
+                "source_filename": "payment.jar",
+                "version_label": "1",
+                "content": "public class PaymentService {" + "x" * 30000 + "}",
+                "neighbor_context": [],
+            }
+        ],
         [
             ChatHistoryMessage(role="user", content="이전 질문" * 700),
             ChatHistoryMessage(role="assistant", content="이전 답변" * 700),
@@ -160,20 +163,24 @@ def test_generate_answer_continues_when_finish_reason_is_length(monkeypatch):
                     200,
                     request=request,
                     json={
-                        "choices": [{
-                            "message": {"content": "## 1. 분석\n앞부분"},
-                            "finish_reason": "length",
-                        }],
+                        "choices": [
+                            {
+                                "message": {"content": "## 1. 분석\n앞부분"},
+                                "finish_reason": "length",
+                            }
+                        ]
                     },
                 )
             return httpx.Response(
                 200,
                 request=request,
                 json={
-                    "choices": [{
-                        "message": {"content": "## 2. 조치\n뒷부분"},
-                        "finish_reason": "stop",
-                    }],
+                    "choices": [
+                        {
+                            "message": {"content": "## 2. 조치\n뒷부분"},
+                            "finish_reason": "stop",
+                        }
+                    ]
                 },
             )
 
@@ -228,18 +235,26 @@ def test_continuation_keeps_only_answer_tail_and_preserves_rag_context(monkeypat
                 return httpx.Response(
                     200,
                     request=request,
-                    json={"choices": [{
-                        "message": {"content": "앞" * 5000},
-                        "finish_reason": "length",
-                    }]},
+                    json={
+                        "choices": [
+                            {
+                                "message": {"content": "앞" * 5000},
+                                "finish_reason": "length",
+                            }
+                        ]
+                    },
                 )
             return httpx.Response(
                 200,
                 request=request,
-                json={"choices": [{
-                    "message": {"content": "완료"},
-                    "finish_reason": "stop",
-                }]},
+                json={
+                    "choices": [
+                        {
+                            "message": {"content": "완료"},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
             )
 
     client = FakeClient()
@@ -252,13 +267,15 @@ def test_continuation_keeps_only_answer_tail_and_preserves_rag_context(monkeypat
 
     result = generate_answer(
         "원인과 해결 절차",
-        [{
-            "title": "장애 지식",
-            "source_filename": "guide.md",
-            "version_label": "1",
-            "content": "RAG-근거 " * 1000,
-            "neighbor_context": [],
-        }],
+        [
+            {
+                "title": "장애 지식",
+                "source_filename": "guide.md",
+                "version_label": "1",
+                "content": "RAG-근거 " * 1000,
+                "neighbor_context": [],
+            }
+        ],
         [],
     )
 

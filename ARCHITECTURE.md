@@ -1,6 +1,6 @@
 # 아키텍처
 
-최종 현행화: 2026-10-28
+최종 현행화: 2026-11-06
 
 ## 경계
 
@@ -53,6 +53,8 @@ Asset
  ├─ Asset Version
  │   ├─ Ingestion Job
  │   ├─ Chunk ─ Embedding
+ │   │   ├─ Chunk Entity ─ Knowledge Entity
+ │   │   └─ Relation Evidence ─ Knowledge Relation
  │   ├─ Error Event ─ Stack Frame
  │   └─ Code Symbol
  └─ Asset Relation ─ Asset
@@ -64,6 +66,8 @@ Response Template ─ Incident resolution guide + Updater
 - Asset: 문서·장애·로그·코드의 논리적 정체성과 ECM metadata
 - Asset Version: 원본 파일, checksum, lifecycle, 현재 버전, parser lineage
 - Chunk: `display_content`와 metadata를 포함한 `embedding_content`를 분리
+- Knowledge Entity/Relation: 원문 청크 근거를 가진 시스템·서버·API·DB 등의 엔터티와
+  방향 관계. 별도 그래프 DB 없이 PostgreSQL 테이블과 FK로 관리
 - Relation: 문서·장애·코드 사이의 references/resolved_by/applies_to 관계
 - Auth Session: 해시된 세션 토큰, 사원정보 snapshot, 만료·폐기 상태
 - Upload Audit: 문서 접수자와 신규/버전등록 구분을 보존하는 감사 이력
@@ -84,11 +88,17 @@ checksum을 기록합니다. 파서 산출물과 JAR 디컴파일 결과는 `pat
 
 1. 질문 또는 스택트레이스에서 에러코드·예외·package·class·method를 추출
 2. 오류 frame → `code_symbols`와 식별자 exact/substring 후보 검색
-3. PostgreSQL `simple` FTS로 lexical 후보 검색
-4. 같은 embedding 모델로 질문을 벡터화해 cosine 후보 검색
-5. 후보를 RRF로 결합하고 `max_vector_distance`로 무관한 일반대화 차단
-6. 선택적으로 BGE reranker 적용
-7. 결과 청크의 앞뒤 문맥을 함께 반환하고 LLM에는 설정된 문맥 예산만 전달
+3. 질문에 명시된 지식 그래프 엔터티 이름으로 연결 원문 후보 검색
+4. PostgreSQL `simple` FTS로 lexical 후보 검색
+5. 같은 embedding 모델로 질문을 벡터화해 cosine 후보 검색
+6. 후보를 RRF로 결합하고 `max_vector_distance`로 무관한 일반대화 차단
+7. 선택적으로 BGE reranker 적용
+8. 선택 청크의 1-hop 엔터티 관계와 앞뒤 문맥을 LLM 근거에 추가
+
+신규 문서는 worker가 전체 청크 중 고르게 표본을 선택해 엔터티·관계를 JSON으로 추출합니다.
+엔터티 mention과 관계는 반드시 해당 원문 `chunk_id`를 근거로 저장하며, 추출 실패는 원문
+색인을 실패시키지 않고 작업 report에 `graph_status=unavailable`로 기록합니다. 조회 화면의
+구성도 역시 저장된 관계만 사용하므로 질문마다 LLM이 임의 구성도를 새로 만들지 않습니다.
 
 장애 해결 화면은 입력 로그의 오류 의심 구간을 최대 16,000자의 LLM 근거로 축약하고,
 구조화한 오류 코드·예외·애플리케이션 프레임을 검색 질의에 추가합니다. 검색 청크는 최종

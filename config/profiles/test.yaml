@@ -141,6 +141,17 @@ incident_guidance:
   # 오류 의심 행 주변에서 LLM 문맥으로 선별할 최대 문자 수.
   max_log_context_characters: "${RAG_INCIDENT_LOG_CONTEXT_CHARACTERS:-16000}"
 
+graph_rag:
+  enabled: "${RAG_GRAPH_RAG_ENABLED:-true}"
+  extraction_provider: "${RAG_GRAPH_RAG_PROVIDER:-ollama_generate}"
+  extraction_max_chunks: 20
+  extraction_max_characters: 16000
+  extraction_max_tokens: "${RAG_GRAPH_RAG_MAX_TOKENS:-2400}"
+  max_entities: 50
+  max_relations: 80
+  query_max_entities: 30
+  query_max_relations: 50
+
 security:
   authentication:
     enabled: "${RAG_AUTH_ENABLED:-false}"

@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from service.db import connect
 from service.parsers import Item
+from service.repositories.knowledge_graph import replace_version_graph
 
 
 def get_job(job_id: UUID | str) -> dict[str, Any] | None:
@@ -137,6 +138,7 @@ def complete_job(
     vectors: list[list[float]],
     report: dict[str, Any],
     embedding_model: str,
+    graph: dict[str, Any] | None = None,
 ) -> None:
     """모든 검색 청크와 구조화 레코드를 한 트랜잭션에 넣고 작업을 완료한다."""
     if len(items) != len(vectors):
@@ -225,6 +227,8 @@ def complete_job(
                         symbol["start_line"], symbol["end_line"],
                     ),
                 )
+        if graph is not None:
+            replace_version_graph(conn, version_id, graph)
         report["processing_stage"] = "completed"
         conn.execute(
             """UPDATE asset_versions SET indexed_at=now(), parser_name=%s, metadata=%s

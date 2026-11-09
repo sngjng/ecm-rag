@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- 별도 그래프 제품 없이 PostgreSQL에 `knowledge_entities`, `knowledge_relations`와 원문
+  청크 근거를 저장하는 경량 GraphRAG를 추가; 신규 업로드 시 LLM 구조화 추출 후 같은
+  완료 트랜잭션에 저장하고, 검색 시 엔터티 이름 lane과 1-hop 관계 문맥을 RRF/LLM 답변에
+  결합; `search.html`에는 근거가 있는 관계만 구성도로 표시하고 기존 문서용
+  `scripts/backfill_graphrag.py` 및 `009_lightweight_graphrag.sql` migration 제공;
+  그래프 추출을 일반 답변 LLM과 분리하고 JSON grammar 대신 `E|...`, `R|...` 행 프로토콜을
+  사용; 테스트 Ollama는 `/api/generate`와 `think:false`, 운영 OpenAI 호환 모델은
+  `/v1/chat/completions`를 설정으로 선택하며 구성도는 검색 결과 문서 version 관계를 사용;
+  폐쇄망 로컬 Mermaid 11.17.2로 그룹별 `subgraph`와 방향 관계를 순서도로 표시하고
+  렌더링 실패 시 기존 카드 구성도로 자동 전환; 구성도 클릭 시 전체 화면 확대 오버레이와
+  가로·세로 스크롤을 제공하고 닫기 버튼·배경 클릭·Esc 키를 지원; 구성도·망 영역·서버·WAS·DB·이미지 OCR
+  청크를 균등 표본보다 우선하고 성능시험/검증 행위를 구성요소에서 제외하며 긴 관계 설명은
+  호출·연결·저장 등의 짧은 라벨로 표시하고 깨진 행은 제외하되 관계를 임의 추정하지 않음;
+  기존 문서 backfill 대상은 `indexed_at` 대신 실제 chunk 존재 여부로 판별해 이관 문서 지원;
+  soft delete 후 재업로드 시 삭제 문서의 공용 엔터티 관계가 섞이지 않도록 검색 결과 version의
+  relation evidence만 1-hop 그래프에 포함
 - 인증 사용자용 `incident_guide.html`을 추가해 최대 1,000,000자의 장애 로그에서 오류 코드,
   예외, 최하위 원인과 애플리케이션 호출 프레임을 추출하고 PostgreSQL/pgvector 내부 검색과
   LLM을 결합한 해결 가이드를 생성; 조회 청크는 화면/API 응답에서 숨기고 관리자만 수정할

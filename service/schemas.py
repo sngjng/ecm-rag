@@ -106,6 +106,8 @@ class ChatRequest(SearchRequest):
     """문서 검색과 근거 기반 답변 생성을 한 번에 요청한다."""
 
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=10)
+    # 문서 조회 화면에서만 true로 요청한다. 관계형 내용이 아니면 diagram은 null이다.
+    include_diagram: bool = False
 
 
 class ExternalAnswerRequest(ChatRequest):

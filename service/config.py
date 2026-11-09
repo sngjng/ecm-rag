@@ -241,6 +241,22 @@ class IncidentGuidanceSettings(SettingsModel):
     max_log_context_characters: int = Field(default=16000, ge=1000, le=200000)
 
 
+class GraphRagSettings(SettingsModel):
+    """PostgreSQL 기반 엔터티·관계 추출 및 검색 확장 정책."""
+
+    enabled: bool = True
+    extraction_provider: Literal["ollama_generate", "openai_compatible"] = (
+        "ollama_generate"
+    )
+    extraction_max_chunks: int = Field(default=20, ge=1, le=100)
+    extraction_max_characters: int = Field(default=16000, ge=1000, le=100000)
+    extraction_max_tokens: int = Field(default=2400, ge=256, le=8192)
+    max_entities: int = Field(default=50, ge=2, le=300)
+    max_relations: int = Field(default=80, ge=1, le=500)
+    query_max_entities: int = Field(default=30, ge=2, le=100)
+    query_max_relations: int = Field(default=50, ge=1, le=200)
+
+
 class AuthenticationSettings(SettingsModel):
     # 사내 로그인 연동 전까지 false로 두면 모든 보호 endpoint가 아래 임시 사용자로
     # 동작한다. Java 인증을 적용할 때 RAG_AUTH_ENABLED=true로 전환한다.
@@ -288,6 +304,7 @@ class AppSettings(SettingsModel):
     incident_guidance: IncidentGuidanceSettings = Field(
         default_factory=IncidentGuidanceSettings
     )
+    graph_rag: GraphRagSettings = Field(default_factory=GraphRagSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 

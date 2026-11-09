@@ -19,6 +19,7 @@ from pathlib import Path
 from service.config import get_settings
 from service.drm import decrypt
 from service.embedding import embed
+from service.graph_rag import extract_knowledge_graph
 from service.jar_parser import parse_jar
 from service.logging_setup import configure_logging
 from service.parsers import (
@@ -186,6 +187,27 @@ def process(job_id: str, worker_id: str) -> None:
             if not items:
                 raise ValueError("검색 가능한 내용을 추출하지 못했습니다")
             _add_asset_context(items, job)
+            graph: dict = {"entities": [], "relations": []}
+            if settings.graph_rag.enabled:
+                update_progress(
+                    "graph_enrichment",
+                    "문서의 시스템·서버·API·DB 관계를 추출하고 있습니다.",
+                    0,
+                    len(items),
+                )
+                try:
+                    graph = extract_knowledge_graph(items, settings.graph_rag)
+                    report["graph_entities"] = len(graph["entities"])
+                    report["graph_relations"] = len(graph["relations"])
+                    report["graph_status"] = "completed"
+                except Exception as exc:
+                    # 그래프는 검색 품질을 높이는 보강 데이터다. LLM 일시 장애 때문에
+                    # 원문·벡터 인덱싱 전체를 실패시키지 않고 운영 로그와 report에 남긴다.
+                    logger.exception("knowledge graph extraction skipped job=%s", job_id)
+                    report["graph_entities"] = 0
+                    report["graph_relations"] = 0
+                    report["graph_status"] = "unavailable"
+                    report["graph_error"] = type(exc).__name__
             update_progress(
                 "embedding",
                 f"검색 벡터를 생성하고 있습니다: 0/{len(items)}",
@@ -226,7 +248,13 @@ def process(job_id: str, worker_id: str) -> None:
                 len(items),
             )
             jobs.complete_job(
-                job_id, worker_id, items, vectors, report, settings.models.embedding.model
+                job_id,
+                worker_id,
+                items,
+                vectors,
+                report,
+                settings.models.embedding.model,
+                graph,
             )
             logger.info("indexed job=%s chunks=%d", job_id, len(items))
     except Exception as exc:

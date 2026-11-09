@@ -695,6 +695,252 @@
         overflow-wrap: anywhere;
       }
 
+      .document-diagram {
+        max-width: 920px;
+        margin: 34px auto 0;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--surface);
+        box-shadow: 0 12px 34px rgba(28, 39, 67, 0.055);
+      }
+
+      .message__bubble > .document-diagram {
+        width: auto;
+        margin: 17px -4px 0;
+        box-shadow: none;
+      }
+
+      .document-diagram__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 20px;
+      }
+
+      .document-diagram__title {
+        margin: 0;
+        font-size: 17px;
+        letter-spacing: -0.02em;
+      }
+
+      .document-diagram__description {
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .document-diagram__badge {
+        flex: 0 0 auto;
+        padding: 5px 9px;
+        border-radius: 999px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-size: 10px;
+        font-weight: 850;
+      }
+
+      .document-diagram__mermaid {
+        position: relative;
+        min-height: 220px;
+        overflow-x: auto;
+        padding: 12px 4px 6px;
+        border-radius: 12px;
+        background: #fbfcff;
+        cursor: zoom-in;
+      }
+
+      .document-diagram__mermaid:focus-visible {
+        outline: 3px solid rgba(69, 87, 230, 0.25);
+        outline-offset: 3px;
+      }
+
+      .document-diagram__mermaid svg {
+        display: block;
+        min-width: 680px;
+        max-width: none;
+        height: auto;
+        margin: 0 auto;
+      }
+
+      .document-diagram__fallback[hidden],
+      .document-diagram__mermaid[hidden] {
+        display: none;
+      }
+
+      .document-diagram__groups {
+        display: grid;
+        grid-auto-columns: minmax(180px, 1fr);
+        grid-auto-flow: column;
+        gap: 30px;
+        overflow-x: auto;
+        padding: 4px 2px 10px;
+      }
+
+      .document-diagram__group {
+        position: relative;
+        min-width: 180px;
+        padding: 13px;
+        border: 1px dashed #aeb8ce;
+        border-radius: 13px;
+        background: #f8f9fc;
+      }
+
+      .document-diagram__group-title {
+        margin: -13px -13px 12px;
+        padding: 8px 10px;
+        border-radius: 12px 12px 0 0;
+        color: #fff;
+        background: #c9142f;
+        font-size: 12px;
+        font-weight: 850;
+        text-align: center;
+      }
+
+      .document-diagram__nodes {
+        display: grid;
+        gap: 8px;
+      }
+
+      .document-diagram__node {
+        padding: 10px;
+        border: 1px solid #d7deec;
+        border-radius: 9px;
+        background: #fff;
+        text-align: center;
+      }
+
+      .document-diagram__node strong {
+        display: block;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .document-diagram__node span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+
+      .document-diagram__relations {
+        display: flex;
+        margin-top: 15px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .document-diagram__relation {
+        padding: 6px 9px;
+        border-radius: 8px;
+        color: #34405a;
+        background: #f0f3f9;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      body.is-diagram-lightbox-open {
+        overflow: hidden;
+      }
+
+      .diagram-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: grid;
+        padding: 24px;
+        background: rgba(15, 23, 42, 0.78);
+        backdrop-filter: blur(5px);
+        place-items: center;
+      }
+
+      .diagram-lightbox[hidden] {
+        display: none;
+      }
+
+      .diagram-lightbox__panel {
+        display: flex;
+        width: min(96vw, 1800px);
+        height: 92vh;
+        min-height: 0;
+        border-radius: 18px;
+        background: #fff;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .diagram-lightbox__header {
+        display: flex;
+        min-height: 62px;
+        padding: 14px 18px 14px 22px;
+        border-bottom: 1px solid var(--line);
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .diagram-lightbox__title {
+        margin: 0;
+        font-size: 17px;
+        letter-spacing: -0.02em;
+      }
+
+      .diagram-lightbox__close {
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        color: var(--text);
+        background: #fff;
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .diagram-lightbox__close:hover {
+        color: #fff;
+        border-color: var(--primary);
+        background: var(--primary);
+      }
+
+      .diagram-lightbox__canvas {
+        min-height: 0;
+        padding: 28px;
+        background: #f7f8fc;
+        overflow: auto;
+      }
+
+      .diagram-lightbox__canvas svg {
+        display: block;
+        width: max(1400px, 92vw) !important;
+        max-width: none !important;
+        height: auto !important;
+        margin: 0 auto;
+        background: #fff;
+      }
+
+      @media (max-width: 720px) {
+        .diagram-lightbox {
+          padding: 8px;
+        }
+
+        .diagram-lightbox__panel {
+          width: 100%;
+          height: calc(100vh - 16px);
+          border-radius: 14px;
+        }
+
+        .diagram-lightbox__canvas {
+          padding: 16px;
+        }
+      }
+
       .error-panel {
         display: none;
         max-width: 860px;
@@ -767,6 +1013,18 @@
 
         .message__bubble {
           max-width: calc(100% - 41px);
+        }
+
+        .document-diagram {
+          padding: 18px;
+        }
+
+        .document-diagram__header {
+          flex-direction: column;
+        }
+
+        .document-diagram__groups {
+          grid-auto-columns: minmax(165px, 82vw);
         }
       }
 
@@ -1001,6 +1259,45 @@
         </div>
       </section>
 
+      <section
+        id="document-diagram"
+        class="document-diagram"
+        aria-labelledby="document-diagram-title"
+        hidden
+      >
+        <div class="document-diagram__header">
+          <div>
+            <h2 id="document-diagram-title" class="document-diagram__title">
+              문서 내용 도식화
+            </h2>
+            <p
+              id="document-diagram-description"
+              class="document-diagram__description"
+            ></p>
+          </div>
+          <span id="document-diagram-badge" class="document-diagram__badge">
+            자동 구성
+          </span>
+        </div>
+        <div
+          id="document-diagram-mermaid"
+          class="document-diagram__mermaid"
+          role="button"
+          tabindex="0"
+          aria-label="문서 구성요소 관계 순서도를 크게 보기"
+          title="클릭하여 크게 보기"
+          hidden
+        ></div>
+        <div id="document-diagram-fallback" class="document-diagram__fallback" hidden>
+          <div id="document-diagram-groups" class="document-diagram__groups"></div>
+          <div
+            id="document-diagram-relations"
+            class="document-diagram__relations"
+            aria-label="구성요소 연결 관계"
+          ></div>
+        </div>
+      </section>
+
       <section class="results-section" aria-labelledby="results-title">
         <div class="results-header">
           <h2 id="results-title" class="results-title">검색 결과</h2>
@@ -1024,6 +1321,33 @@
       ></p>
     </main>
 
+    <div
+      id="diagram-lightbox"
+      class="diagram-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="diagram-lightbox-title"
+      hidden
+    >
+      <section class="diagram-lightbox__panel">
+        <header class="diagram-lightbox__header">
+          <h2 id="diagram-lightbox-title" class="diagram-lightbox__title">
+            문서 관계 구성도
+          </h2>
+          <button
+            id="diagram-lightbox-close"
+            class="diagram-lightbox__close"
+            type="button"
+            aria-label="확대 구성도 닫기"
+          >
+            ×
+          </button>
+        </header>
+        <div id="diagram-lightbox-canvas" class="diagram-lightbox__canvas"></div>
+      </section>
+    </div>
+
+    <script src="/assets/vendor/mermaid-11.17.2.min.js"></script>
     <script>
       const form = document.querySelector("#search-form");
       const queryInput = document.querySelector("#query");
@@ -1034,7 +1358,108 @@
       const errorPanel = document.querySelector("#error-panel");
       const liveStatus = document.querySelector("#live-status");
       const conversation = document.querySelector("#conversation");
+      const documentDiagram = document.querySelector("#document-diagram");
+      const documentDiagramTitle = document.querySelector(
+        "#document-diagram-title",
+      );
+      const documentDiagramDescription = document.querySelector(
+        "#document-diagram-description",
+      );
+      const documentDiagramBadge = document.querySelector(
+        "#document-diagram-badge",
+      );
+      const documentDiagramMermaid = document.querySelector(
+        "#document-diagram-mermaid",
+      );
+      const documentDiagramFallback = document.querySelector(
+        "#document-diagram-fallback",
+      );
+      const documentDiagramGroups = document.querySelector(
+        "#document-diagram-groups",
+      );
+      const documentDiagramRelations = document.querySelector(
+        "#document-diagram-relations",
+      );
+      const diagramLightbox = document.querySelector("#diagram-lightbox");
+      const diagramLightboxTitle = document.querySelector(
+        "#diagram-lightbox-title",
+      );
+      const diagramLightboxClose = document.querySelector(
+        "#diagram-lightbox-close",
+      );
+      const diagramLightboxCanvas = document.querySelector(
+        "#diagram-lightbox-canvas",
+      );
       const conversationHistory = [];
+      let mermaidRenderSequence = 0;
+      let diagramLightboxReturnFocus = null;
+
+      if (window.mermaid) {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          flowchart: {
+            curve: "basis",
+            htmlLabels: false,
+            nodeSpacing: 34,
+            rankSpacing: 52,
+            useMaxWidth: false,
+          },
+          themeVariables: {
+            primaryColor: "#eef1ff",
+            primaryTextColor: "#172033",
+            primaryBorderColor: "#4557e6",
+            lineColor: "#6f7b96",
+            secondaryColor: "#f8f9fc",
+            tertiaryColor: "#fff5f6",
+            clusterBkg: "#f8f9fc",
+            clusterBorder: "#aeb8ce",
+            fontFamily: "Pretendard, Noto Sans KR, sans-serif",
+          },
+        });
+      }
+
+      function openDiagramLightbox() {
+        const sourceSvg = documentDiagramMermaid.querySelector("svg");
+        if (!sourceSvg || documentDiagramMermaid.hidden) return;
+
+        const enlargedSvg = sourceSvg.cloneNode(true);
+        enlargedSvg.removeAttribute("width");
+        enlargedSvg.removeAttribute("height");
+        enlargedSvg.setAttribute("aria-label", "확대된 문서 관계 구성도");
+        enlargedSvg.setAttribute("role", "img");
+        diagramLightboxCanvas.replaceChildren(enlargedSvg);
+        diagramLightboxTitle.textContent =
+          documentDiagramTitle.textContent || "문서 관계 구성도";
+        diagramLightboxReturnFocus = document.activeElement;
+        diagramLightbox.hidden = false;
+        document.body.classList.add("is-diagram-lightbox-open");
+        diagramLightboxClose.focus();
+      }
+
+      function closeDiagramLightbox() {
+        if (diagramLightbox.hidden) return;
+        diagramLightbox.hidden = true;
+        diagramLightboxCanvas.replaceChildren();
+        document.body.classList.remove("is-diagram-lightbox-open");
+        diagramLightboxReturnFocus?.focus?.();
+        diagramLightboxReturnFocus = null;
+      }
+
+      documentDiagramMermaid.addEventListener("click", openDiagramLightbox);
+      documentDiagramMermaid.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openDiagramLightbox();
+      });
+      diagramLightboxClose.addEventListener("click", closeDiagramLightbox);
+      diagramLightbox.addEventListener("click", (event) => {
+        if (event.target === diagramLightbox) closeDiagramLightbox();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeDiagramLightbox();
+      });
 
       async function loadCurrentUser() {
         const response = await fetch("/api/v1/auth/me", {
@@ -1287,10 +1712,165 @@
         resultsContainer.append(list);
       }
 
+      function safeMermaidText(value, maximum = 100) {
+        // 업로드 문서에서 추출된 문자열이 Mermaid 지시문·HTML·링크로 해석되지 않도록
+        // 제어문자와 문법 구분자를 제거한다. 화면 상세는 별도 카드 fallback에 보존한다.
+        return String(value || "")
+          .replace(/[\r\n\t]+/g, " ")
+          .replace(/["`<>|;{}]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, maximum);
+      }
+
+      function buildMermaidFlowchart(diagram, groups, nodes, edges) {
+        const direction = diagram.type === "flow" ? "TD" : "LR";
+        const lines = [`flowchart ${direction}`];
+        const nodeIds = new Map();
+        const groupNodes = new Map(groups.map((group) => [String(group.id), []]));
+
+        nodes.forEach((node, index) => {
+          const mermaidId = `n${index}`;
+          nodeIds.set(String(node.id), mermaidId);
+          const groupId = String(node.group || "");
+          if (!groupNodes.has(groupId)) groupNodes.set(groupId, []);
+          groupNodes.get(groupId).push({ node, mermaidId });
+        });
+
+        groups.forEach((group, groupIndex) => {
+          const members = groupNodes.get(String(group.id)) || [];
+          if (!members.length) return;
+          const groupLabel = safeMermaidText(group.label || "구성 영역", 60);
+          lines.push(`  subgraph g${groupIndex}["${groupLabel}"]`);
+          lines.push("    direction TB");
+          members.forEach(({ node, mermaidId }) => {
+            const label = safeMermaidText(node.label || "구성요소", 80);
+            lines.push(`    ${mermaidId}["${label}"]`);
+          });
+          lines.push("  end");
+        });
+
+        // 서버 응답에 group이 없는 노드가 생겨도 관계를 잃지 않도록 별도 영역에 둔다.
+        const groupedIds = new Set(groups.map((group) => String(group.id)));
+        nodes.forEach((node) => {
+          if (groupedIds.has(String(node.group || ""))) return;
+          const mermaidId = nodeIds.get(String(node.id));
+          const label = safeMermaidText(node.label || "구성요소", 80);
+          lines.push(`  ${mermaidId}["${label}"]`);
+        });
+
+        edges.forEach((edge) => {
+          const source = nodeIds.get(String(edge.from));
+          const target = nodeIds.get(String(edge.to));
+          if (!source || !target || source === target) return;
+          const label = safeMermaidText(edge.label || "연결", 80);
+          lines.push(`  ${source} -->|"${label}"| ${target}`);
+        });
+        lines.push("  classDef default fill:#ffffff,stroke:#4557e6,color:#172033,stroke-width:1.2px");
+        return lines.join("\n");
+      }
+
+      function renderDiagramFallback(groups, nodes, edges) {
+        const nodeLabels = new Map(
+          nodes.map((node) => [String(node.id), String(node.label || node.id)]),
+        );
+        groups.forEach((group) => {
+          const groupElement = document.createElement("section");
+          groupElement.className = "document-diagram__group";
+
+          const groupTitle = document.createElement("h3");
+          groupTitle.className = "document-diagram__group-title";
+          groupTitle.textContent = group.label || "구성 영역";
+
+          const nodeList = document.createElement("div");
+          nodeList.className = "document-diagram__nodes";
+          nodes
+            .filter((node) => String(node.group) === String(group.id))
+            .forEach((node) => {
+              const nodeElement = document.createElement("div");
+              nodeElement.className = "document-diagram__node";
+              const label = document.createElement("strong");
+              label.textContent = node.label || "구성요소";
+              nodeElement.append(label);
+              if (node.detail) {
+                const detail = document.createElement("span");
+                detail.textContent = node.detail;
+                nodeElement.append(detail);
+              }
+              nodeList.append(nodeElement);
+            });
+          groupElement.append(groupTitle, nodeList);
+          documentDiagramGroups.append(groupElement);
+        });
+
+        edges.forEach((edge) => {
+          const relation = document.createElement("span");
+          relation.className = "document-diagram__relation";
+          const source = nodeLabels.get(String(edge.from)) || edge.from;
+          const target = nodeLabels.get(String(edge.to)) || edge.to;
+          relation.textContent = `${source} → ${target}${edge.label ? ` · ${edge.label}` : ""}`;
+          documentDiagramRelations.append(relation);
+        });
+      }
+
+      async function renderDocumentDiagram(diagram, assistantMessage) {
+        documentDiagram.hidden = true;
+        documentDiagramMermaid.hidden = true;
+        documentDiagramMermaid.replaceChildren();
+        documentDiagramFallback.hidden = true;
+        documentDiagramGroups.replaceChildren();
+        documentDiagramRelations.replaceChildren();
+
+        const groups = Array.isArray(diagram?.groups) ? diagram.groups : [];
+        const nodes = Array.isArray(diagram?.nodes) ? diagram.nodes : [];
+        const edges = Array.isArray(diagram?.edges) ? diagram.edges : [];
+        if (!groups.length || nodes.length < 2 || !edges.length) return false;
+
+        const typeNames = {
+          architecture: "구성도",
+          flow: "처리 흐름",
+          hierarchy: "계층 구조",
+        };
+        documentDiagramTitle.textContent = diagram.title || "문서 내용 도식화";
+        documentDiagramDescription.textContent =
+          diagram.description ||
+          "검색된 문서에서 확인된 구성요소와 연결 관계를 요약했습니다.";
+        documentDiagramBadge.textContent = typeNames[diagram.type] || "자동 구성";
+
+        renderDiagramFallback(groups, nodes, edges);
+        const answerBubble = assistantMessage?.querySelector(".message__bubble");
+        if (answerBubble) {
+          // 답변 설명과 구성도가 떨어져 보이지 않도록 같은 AI 말풍선 안에 배치한다.
+          answerBubble.append(documentDiagram);
+        }
+        documentDiagram.hidden = false;
+        if (!window.mermaid) {
+          console.warn("Mermaid local bundle is unavailable; using card fallback.");
+          documentDiagramFallback.hidden = false;
+          return true;
+        }
+        try {
+          mermaidRenderSequence += 1;
+          const definition = buildMermaidFlowchart(diagram, groups, nodes, edges);
+          const rendered = await window.mermaid.render(
+            `documentGraph${mermaidRenderSequence}`,
+            definition,
+          );
+          documentDiagramMermaid.innerHTML = rendered.svg;
+          rendered.bindFunctions?.(documentDiagramMermaid);
+          documentDiagramMermaid.hidden = false;
+        } catch (error) {
+          console.warn("Mermaid diagram rendering failed; using card fallback.", error);
+          documentDiagramFallback.hidden = false;
+        }
+        return true;
+      }
+
       async function askDocuments(query) {
         setLoading(true);
         showError("");
         resultsCount.textContent = "검색 및 답변 생성 중";
+        documentDiagram.hidden = true;
         liveStatus.textContent =
           "관련 문서를 검색하고 답변을 생성하고 있습니다.";
         appendMessage("user", query);
@@ -1306,6 +1886,7 @@
             body: JSON.stringify({
               query,
               limit: 8,
+              include_diagram: true,
               history: conversationHistory.slice(-8),
             }),
           });
@@ -1326,12 +1907,16 @@
 
           const results = payload.results || [];
           thinkingMessage.remove();
-          appendMessage(
+          const assistantMessage = appendMessage(
             "assistant",
             payload.answer || "답변을 생성하지 못했습니다.",
             payload.generation_status,
           );
           renderResults(results);
+          const diagramRendered = await renderDocumentDiagram(
+            payload.diagram,
+            assistantMessage,
+          );
           conversationHistory.push(
             { role: "user", content: query },
             {
@@ -1344,7 +1929,9 @@
             liveStatus.textContent =
               "등록 문서와 관련 없는 일반 질문에는 답변하지 않습니다.";
           } else {
-            liveStatus.textContent = `답변과 검색 결과 ${results.length}건을 표시했습니다.`;
+            liveStatus.textContent = diagramRendered
+              ? `답변, 문서 구성도와 검색 결과 ${results.length}건을 표시했습니다.`
+              : `답변과 검색 결과 ${results.length}건을 표시했습니다.`;
           }
         } catch (error) {
           thinkingMessage.remove();

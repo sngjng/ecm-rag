@@ -179,6 +179,33 @@ def _identifier_lanes(
     return lanes
 
 
+def _graph_entity_lane(
+    conn: Any,
+    query: str,
+    filter_sql: str,
+    filter_values: tuple,
+    top_k: int,
+) -> list[str]:
+    """질문에 명시된 엔터티 이름과 연결된 원문 청크를 그래프 검색 lane으로 만든다."""
+    normalized_query = re.sub(r"\s+", "", query).casefold()
+    rows = conn.execute(
+        """SELECT c.chunk_id, max(similarity(e.canonical_name, %s)) AS graph_score
+             FROM knowledge_entities e
+             JOIN chunk_entities ce USING(entity_id)
+             JOIN chunks c USING(chunk_id)
+             JOIN assets a USING(asset_id)
+             JOIN asset_versions v USING(version_id)
+            WHERE (
+              position(e.normalized_name in %s) > 0
+              OR similarity(e.canonical_name, %s) >= 0.35
+            )"""
+        + filter_sql
+        + " GROUP BY c.chunk_id ORDER BY graph_score DESC LIMIT %s",
+        (query, normalized_query, query, *filter_values, top_k),
+    ).fetchall()
+    return [row["chunk_id"] for row in rows]
+
+
 def _lexical_lane(
     conn: Any,
     query: str,
@@ -307,6 +334,10 @@ def search(
         lanes.extend(_identifier_lanes(
             conn, query, filter_sql, filter_values, retrieval.exact_top_k
         ))
+        if settings.graph_rag.enabled:
+            lanes.append(_graph_entity_lane(
+                conn, query, filter_sql, filter_values, retrieval.exact_top_k
+            ))
         lanes.append(_lexical_lane(
             conn, query, filter_sql, filter_values, retrieval.lexical_top_k
         ))

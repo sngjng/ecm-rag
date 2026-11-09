@@ -326,7 +326,7 @@ psql "$RAG_DB_DSN" -v ON_ERROR_STOP=1 \
 ```
 
 `bin/start.sh`는 증분 migration `002_session_auth_audit.sql`부터
-`008_incident_timestamp_template.sql`까지 매번 안전하게 확인하지만, 신규 DB의
+`009_lightweight_graphrag.sql`까지 매번 안전하게 확인하지만, 신규 DB의
 `001_pgvector.sql`은 자동 생성하지 않습니다.
 
 검증:
@@ -339,6 +339,57 @@ psql "$RAG_DB_DSN" -c \
 psql "$RAG_DB_DSN" -c \
   "SELECT atttypmod FROM pg_attribute WHERE attrelid='rag.chunks'::regclass AND attname='embedding';"
 ```
+
+### 8.3 PostgreSQL 경량 GraphRAG
+
+`009_lightweight_graphrag.sql`은 별도 Graph DB 없이 엔터티, 관계, 청크 근거 테이블을
+추가합니다. 신규 업로드는 worker가 자동으로 그래프를 추출합니다. 기능을 일시 중지하려면
+`.env`에서 다음 값을 사용하며, 중지해도 기존 FTS·pgvector 검색은 그대로 동작합니다.
+
+```dotenv
+RAG_GRAPH_RAG_ENABLED=true
+RAG_GRAPH_RAG_PROVIDER=ollama_generate
+RAG_GRAPH_RAG_MAX_TOKENS=2400
+```
+
+그래프 추출은 일반 질의응답용 `service.llm.generate_answer()`와 분리되어 있습니다.
+테스트 Ollama 환경은 `/api/generate`를 `think:false`로 한 번 호출하고, 운영 vLLM 등의
+OpenAI 호환 서버는 `/v1/chat/completions`를 사용합니다. 결과 형식은 JSON이 아니라
+`E|...`(엔터티), `R|...`(관계) 행 프로토콜이므로 llama.cpp의 JSON PEG grammar와
+따옴표·쉼표 보정 로직을 사용하지 않습니다. 형식이 깨진 행은 제외하지만 관계 방향을
+애플리케이션이 임의로 추정하지 않습니다.
+
+조회 화면 순서도는 외부 CDN을 사용하지 않고
+`web/assets/vendor/mermaid-11.17.2.min.js`를 `/assets` 정적 경로로 제공합니다. 배포 ZIP에서
+해당 파일과 `MERMAID-LICENSE.txt`가 누락되면 카드형 fallback으로 표시됩니다. 브라우저
+개발자 도구 Network에서 Mermaid 파일이 HTTP 200인지 확인할 수 있습니다.
+
+009 적용 전에 색인된 현재 승인 문서는 서비스 실행 계정으로 한 번 backfill합니다. 문서별
+LLM 호출이 발생하므로 먼저 소량으로 확인한 뒤 전체를 수행합니다.
+
+```bash
+cd /mnt/appl/ecm-rag
+set -a
+source .env
+set +a
+
+# 최초 3건 시험
+"$ECM_RAG_PYTHON" -m scripts.backfill_graphrag --limit 3
+
+# 그래프 근거가 아직 없는 현재 승인 문서 전체
+"$ECM_RAG_PYTHON" -m scripts.backfill_graphrag
+
+# 특정 version을 기존 그래프와 관계없이 재구축
+"$ECM_RAG_PYTHON" -m scripts.backfill_graphrag \
+  --version-id 00000000-0000-0000-0000-000000000000 --force
+```
+
+진행상황은 터미널에 문서 제목, 청크 수, 엔터티·관계 수로 출력됩니다. 신규 업로드 작업의
+추출 결과는 `ingestion_jobs.report`의 `graph_status`, `graph_entities`,
+`graph_relations`에서 확인할 수 있습니다.
+
+이미 그래프가 저장된 한 문서만 추출 규칙 변경 후 다시 만들려면 작업의 `version_id`를
+확인하여 `--force`로 실행합니다. 원본 재업로드와 임베딩 재생성은 발생하지 않습니다.
 
 ## 9. `login.py` 사내 EAI 인증 연동
 
