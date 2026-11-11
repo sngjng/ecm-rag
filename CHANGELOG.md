@@ -4,6 +4,20 @@
 
 - 로그분석 AI 응답에 안전한 Markdown 렌더링을 적용해 제목·강조·목록·표·코드 블록을
   서식으로 표시하고, 긴 코드·표의 가로 스크롤을 답변 안으로 제한
+  - 작업일: 2026-11-12. 반영 브랜치: `fix/incident-guide-markdown`, 구현 커밋: `3231a69`.
+  - 변경 파일: `web/incident_guide.html`, `service/routes/incident_guide.py`,
+    `tests/test_incident_markdown.py`. 기존 서버 Markdown 렌더러를 재사용해
+    `/api/v1/incident-guide/analyze` 응답에 정제된 `answer_html`을 추가하고 화면에서 표시한다.
+    대화 이력과 Word 다운로드에는 기존 `answer` 원문을 계속 사용한다.
+  - 회사 환경 반영: 위 브랜치의 화면·API 변경을 함께 반영한 뒤 API 프로세스를 재시작하고
+    브라우저를 강력 새로고침한다. DB migration이나 신규 패키지 추가는 필요하지 않다.
+    기존 `Markdown==3.10.2` 의존성이 설치되어 있어야 한다.
+  - 확인 항목: `/incident_guide.html`에서 새 분석을 요청해 제목·강조·목록·표·코드 블록의
+    서식, 긴 코드·표의 답변 내부 스크롤, Word 다운로드 동작을 확인한다.
+  - 검증 결과: 임시 Python 3.11.18 환경에서 `RAG_PROFILE=unit-test`로 pytest를 실행해
+    87개 통과, PostgreSQL 미구성으로 DB 통합 테스트 6개 건너뜀.
+    추가 테스트에서 답변 원문 보존과 HTML 스크립트·위험 링크 차단을 확인했다.
+    실제 브라우저 및 사내 모델·DB 연동 확인은 회사 환경에서 수행해야 한다.
 
 - 로그분석 AI의 완료된 답변 카드 우측 하단에 작은 Word 다운로드 버튼을 추가하고,
   별도의 표·차트를 덧붙이지 않은 채 화면의 가이드 결과 순서와 문구를 `.docx`로 내보냄
