@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from service.dependencies import authorize, authorize_admin
 from service.incident_guidance import generate_incident_guide
 from service.incident_report import build_incident_report
+from service.markdown_viewer import render_markdown
 from service.repositories import incident_guide as incident_repository
 from service.schemas import (
     IncidentGuideRequest,
@@ -51,7 +52,9 @@ def analyze_incident(
     template = incident_repository.get_template()
     if not template:
         raise HTTPException(503, "장애 해결 가이드 템플릿이 준비되지 않았습니다")
-    return generate_incident_guide(payload, template["content"])
+    result = generate_incident_guide(payload, template["content"])
+    result["answer_html"] = render_markdown(result.get("answer") or "")
+    return result
 
 
 @router.post("/report")

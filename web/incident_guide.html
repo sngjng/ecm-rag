@@ -476,6 +476,7 @@
       }
 
       .message__bubble {
+        min-width: 0;
         max-width: min(820px, calc(100% - 46px));
         padding: 17px 19px;
         border: 1px solid var(--line);
@@ -645,6 +646,58 @@
           background: #302817;
         }
       }
+      .message__text--markdown {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+      }
+
+      .message__text--markdown > :first-child { margin-top: 0; }
+      .message__text--markdown > :last-child { margin-bottom: 0; }
+      .message__text--markdown :is(h1, h2, h3, h4, h5, h6) {
+        margin: 1.2em 0 0.5em;
+        line-height: 1.4;
+        font-size: 1.1em;
+        font-weight: 800;
+      }
+      .message__text--markdown h1 { font-size: 1.35em; }
+      .message__text--markdown h2 { font-size: 1.2em; }
+      .message__text--markdown p { margin: 0.65em 0; }
+      .message__text--markdown :is(ul, ol) { padding-left: 1.6em; }
+      .message__text--markdown li { margin: 0.3em 0; }
+      .message__text--markdown code {
+        padding: 0.15em 0.35em;
+        border-radius: 4px;
+        background: var(--surface-soft);
+        font-family: monospace;
+      }
+      .message__text--markdown pre {
+        overflow-x: auto;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-soft);
+        white-space: pre;
+        overflow-wrap: normal;
+      }
+      .message__text--markdown pre code { padding: 0; background: transparent; }
+      .message__text--markdown table { border-collapse: collapse; margin: 1em 0; }
+      .message__text--markdown :is(th, td) {
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+      }
+      .message__text--markdown th { background: var(--surface-soft); }
+      .message__text--markdown blockquote {
+        margin: 1em 0;
+        padding-left: 14px;
+        border-left: 3px solid var(--primary);
+        color: var(--muted);
+      }
+      .message__text--markdown a { color: var(--primary); }
+
     </style>
   </head>
   <body>
@@ -955,7 +1008,7 @@
         errorPanel.classList.toggle("is-visible", Boolean(message));
       }
 
-      function appendMessage(role, text, status = "completed") {
+      function appendMessage(role, text, status = "completed", answerHtml = "") {
         const message = document.createElement("div");
         message.className = `message message--${role}`;
         if (status === "unavailable") message.classList.add("message--warning");
@@ -971,9 +1024,15 @@
         const label = document.createElement("span");
         label.className = "message__label";
         label.textContent = role === "assistant" ? "로그분석 AI" : "나";
-        const paragraph = document.createElement("p");
+        const paragraph = document.createElement("div");
         paragraph.className = "message__text";
-        paragraph.textContent = text;
+        if (role === "assistant" && answerHtml) {
+          // 서버의 허용 목록 기반 Markdown 렌더러로 정제한 HTML만 사용한다.
+          paragraph.classList.add("message__text--markdown");
+          paragraph.innerHTML = answerHtml;
+        } else {
+          paragraph.textContent = text;
+        }
         bubble.append(label, paragraph);
         message.append(bubble);
         conversation.append(message);
@@ -1087,6 +1146,7 @@
             "assistant",
             payload.answer || "해결 가이드를 생성하지 못했습니다.",
             payload.generation_status,
+            payload.answer_html,
           );
           renderAnalysis(payload.analysis);
           renderIncidentDiagram(payload.diagram);
