@@ -510,6 +510,135 @@
         word-break: break-word;
       }
 
+      /*
+       * 로그분석 AI의 답변은 관리자가 정의한 Markdown 템플릿을 따르므로
+       * 제목, 목록, 인용문, 코드가 실제 문서처럼 읽히도록 표시한다.
+       * 사용자 입력 메시지는 기존 pre-wrap 표현을 유지한다.
+       */
+      .message__text--markdown {
+        white-space: normal;
+      }
+
+      .message__text--markdown > :first-child {
+        margin-top: 0;
+      }
+
+      .message__text--markdown > :last-child {
+        margin-bottom: 0;
+      }
+
+      .message__text--markdown h1,
+      .message__text--markdown h2,
+      .message__text--markdown h3,
+      .message__text--markdown h4,
+      .message__text--markdown h5,
+      .message__text--markdown h6 {
+        margin: 1.45em 0 0.55em;
+        color: var(--text);
+        line-height: 1.35;
+        letter-spacing: -0.025em;
+      }
+
+      .message__text--markdown h1 {
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+        font-size: 23px;
+      }
+
+      .message__text--markdown h2 {
+        padding-left: 10px;
+        border-left: 3px solid var(--primary);
+        font-size: 18px;
+      }
+
+      .message__text--markdown h3 {
+        font-size: 16px;
+      }
+
+      .message__text--markdown h4,
+      .message__text--markdown h5,
+      .message__text--markdown h6 {
+        font-size: 14px;
+      }
+
+      .message__text--markdown p {
+        margin: 0.65em 0;
+      }
+
+      .message__text--markdown ul,
+      .message__text--markdown ol {
+        margin: 0.65em 0;
+        padding-left: 1.8em;
+      }
+
+      .message__text--markdown li {
+        margin: 0.32em 0;
+        padding-left: 0.25em;
+      }
+
+      .message__text--markdown ol > li {
+        margin: 0.75em 0;
+      }
+
+      .message__text--markdown li > ul,
+      .message__text--markdown li > ol {
+        margin: 0.45em 0 0.7em;
+        padding-left: 1.65em;
+      }
+
+      .message__text--markdown li > ul > li,
+      .message__text--markdown li > ol > li {
+        margin: 0.3em 0;
+      }
+
+      .message__text--markdown blockquote {
+        margin: 0.8em 0;
+        padding: 10px 14px;
+        border-left: 3px solid #aab4d8;
+        color: var(--muted);
+        background: var(--surface-soft);
+      }
+
+      .message__text--markdown code {
+        padding: 0.12em 0.38em;
+        border-radius: 5px;
+        color: #b4233d;
+        background: #f3f4f8;
+        font-family: Consolas, "Liberation Mono", monospace;
+        font-size: 0.9em;
+      }
+
+      .message__text--markdown pre {
+        overflow-x: auto;
+        margin: 0.85em 0;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        color: #e9eefc;
+        background: #20283a;
+        line-height: 1.55;
+        white-space: pre;
+      }
+
+      .message__text--markdown pre code {
+        padding: 0;
+        color: inherit;
+        background: transparent;
+        font-size: 12px;
+      }
+
+      .message__text--markdown a {
+        color: var(--primary-strong);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      .message__text--markdown hr {
+        margin: 1.2em 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+
       .message__actions {
         display: flex;
         margin-top: 12px;
@@ -955,6 +1084,187 @@
         errorPanel.classList.toggle("is-visible", Boolean(message));
       }
 
+      function appendInlineMarkdown(parent, source) {
+        /*
+         * 모델 답변을 innerHTML로 삽입하지 않는다. Markdown 토큰을 DOM 노드로
+         * 만들어 응답에 HTML/스크립트가 포함되어도 실행되지 않도록 한다.
+         */
+        const tokenPattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;
+        let cursor = 0;
+        for (const match of source.matchAll(tokenPattern)) {
+          if (match.index > cursor) {
+            parent.append(document.createTextNode(source.slice(cursor, match.index)));
+          }
+          const token = match[0];
+          if (token.startsWith("`")) {
+            const code = document.createElement("code");
+            code.textContent = token.slice(1, -1);
+            parent.append(code);
+          } else if (token.startsWith("**") || token.startsWith("__")) {
+            const strong = document.createElement("strong");
+            strong.textContent = token.slice(2, -2);
+            parent.append(strong);
+          } else {
+            const linkMatch = token.match(/^\[([^\]]+)]\((https?:\/\/[^\s)]+)\)$/);
+            if (linkMatch) {
+              const link = document.createElement("a");
+              link.textContent = linkMatch[1];
+              link.href = linkMatch[2];
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              parent.append(link);
+            } else {
+              parent.append(document.createTextNode(token));
+            }
+          }
+          cursor = match.index + token.length;
+        }
+        if (cursor < source.length) {
+          parent.append(document.createTextNode(source.slice(cursor)));
+        }
+      }
+
+      function renderMarkdown(container, markdown) {
+        const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+        container.replaceChildren();
+        container.classList.add("message__text--markdown");
+        let index = 0;
+
+        const startsBlock = (line, nextLine = "") =>
+          /^\s*(```|#{1,6}\s+|[-+*]\s+|\d+[.)]\s+|>\s?|---+\s*$)/.test(line) ||
+          (/^\s*\|/.test(line) && /^\s*\|?\s*:?-{3,}/.test(nextLine));
+
+        while (index < lines.length) {
+          const line = lines[index];
+          if (!line.trim()) {
+            index += 1;
+            continue;
+          }
+
+          const fence = line.match(/^\s*```([\w+-]*)\s*$/);
+          if (fence) {
+            const codeLines = [];
+            index += 1;
+            while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) {
+              codeLines.push(lines[index]);
+              index += 1;
+            }
+            if (index < lines.length) index += 1;
+            const pre = document.createElement("pre");
+            const code = document.createElement("code");
+            if (fence[1]) code.dataset.language = fence[1];
+            code.textContent = codeLines.join("\n");
+            pre.append(code);
+            container.append(pre);
+            continue;
+          }
+
+          const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+          if (heading) {
+            const element = document.createElement(`h${heading[1].length}`);
+            appendInlineMarkdown(element, heading[2]);
+            container.append(element);
+            index += 1;
+            continue;
+          }
+
+          if (/^\s*---+\s*$/.test(line)) {
+            container.append(document.createElement("hr"));
+            index += 1;
+            continue;
+          }
+
+          const orderedItem = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
+          if (orderedItem) {
+            /*
+             * 모델은 절차마다 다시 `1.`을 쓰거나 번호 설명 아래의 `-` 항목을
+             * 들여쓰지 않는 경우가 있다. 하나의 ol로 합치고 뒤따르는 불릿을
+             * 현재 절차의 하위 목록으로 묶어 화면 번호를 1, 2, 3…으로 정규화한다.
+             */
+            const list = document.createElement("ol");
+            const firstNumber = Number.parseInt(orderedItem[1], 10);
+            if (Number.isFinite(firstNumber) && firstNumber > 1) {
+              list.start = firstNumber;
+            }
+
+            while (index < lines.length) {
+              while (index < lines.length && !lines[index].trim()) index += 1;
+              const item = lines[index]?.match(/^\s*\d+[.)]\s+(.+)$/);
+              if (!item) break;
+
+              const entry = document.createElement("li");
+              appendInlineMarkdown(entry, item[1]);
+              index += 1;
+
+              const details = document.createElement("ul");
+              while (index < lines.length) {
+                let detailIndex = index;
+                while (detailIndex < lines.length && !lines[detailIndex].trim()) {
+                  detailIndex += 1;
+                }
+                const detail = lines[detailIndex]?.match(/^\s*[-+*]\s+(.+)$/);
+                if (!detail) break;
+                index = detailIndex + 1;
+                const detailEntry = document.createElement("li");
+                appendInlineMarkdown(detailEntry, detail[1]);
+                details.append(detailEntry);
+              }
+              if (details.childNodes.length) entry.append(details);
+              list.append(entry);
+            }
+            container.append(list);
+            continue;
+          }
+
+          const unorderedItem = line.match(/^\s*[-+*]\s+(.+)$/);
+          if (unorderedItem) {
+            const list = document.createElement("ul");
+            while (index < lines.length) {
+              const item = lines[index].match(/^\s*[-+*]\s+(.+)$/);
+              if (!item) break;
+              const entry = document.createElement("li");
+              appendInlineMarkdown(entry, item[1]);
+              list.append(entry);
+              index += 1;
+            }
+            container.append(list);
+            continue;
+          }
+
+          if (/^\s*>/.test(line)) {
+            const quoteLines = [];
+            while (index < lines.length && /^\s*>/.test(lines[index])) {
+              quoteLines.push(lines[index].replace(/^\s*>\s?/, ""));
+              index += 1;
+            }
+            const quote = document.createElement("blockquote");
+            appendInlineMarkdown(quote, quoteLines.join("\n"));
+            container.append(quote);
+            continue;
+          }
+
+          const paragraphLines = [line.trim()];
+          index += 1;
+          while (
+            index < lines.length &&
+            lines[index].trim() &&
+            !startsBlock(lines[index], lines[index + 1] || "")
+          ) {
+            paragraphLines.push(lines[index].trim());
+            index += 1;
+          }
+          const paragraph = document.createElement("p");
+          appendInlineMarkdown(paragraph, paragraphLines.join("\n"));
+          container.append(paragraph);
+        }
+
+        if (!container.childNodes.length) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = "답변 내용이 없습니다.";
+          container.append(paragraph);
+        }
+      }
+
       function appendMessage(role, text, status = "completed") {
         const message = document.createElement("div");
         message.className = `message message--${role}`;
@@ -971,10 +1281,14 @@
         const label = document.createElement("span");
         label.className = "message__label";
         label.textContent = role === "assistant" ? "로그분석 AI" : "나";
-        const paragraph = document.createElement("p");
-        paragraph.className = "message__text";
-        paragraph.textContent = text;
-        bubble.append(label, paragraph);
+        const content = document.createElement("div");
+        content.className = "message__text";
+        if (role === "assistant" && status !== "thinking") {
+          renderMarkdown(content, text);
+        } else {
+          content.textContent = text;
+        }
+        bubble.append(label, content);
         message.append(bubble);
         conversation.append(message);
         message.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -985,6 +1299,7 @@
         return appendMessage(
           "assistant",
           "핵심 오류를 추출하고 관련 장애 지식을 조회해 해결 가이드를 작성하고 있습니다…",
+          "thinking",
         );
       }
 

@@ -10,7 +10,6 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-
 BODY_FONT = "Malgun Gothic"
 TEXT = RGBColor(0, 0, 0)
 
@@ -84,10 +83,37 @@ def _add_heading(document: Document, text: str, level: int) -> None:
         run.bold = True
 
 
+def _add_numbered_step(document: Document, text: str, number: int) -> None:
+    """모델이 모든 항목을 1로 작성해도 Word에는 연속 번호로 표시한다."""
+    paragraph = document.add_paragraph()
+    paragraph.paragraph_format.left_indent = Cm(0.75)
+    paragraph.paragraph_format.first_line_indent = Cm(-0.45)
+    paragraph.paragraph_format.space_before = Pt(4)
+    paragraph.paragraph_format.space_after = Pt(3)
+    paragraph.paragraph_format.line_spacing = 1.3
+    prefix = paragraph.add_run(f"{number}. ")
+    _set_run_font(prefix, size=10.5, bold=True)
+    _add_inline_markdown(paragraph, text)
+
+
+def _add_bullet_item(document: Document, text: str, *, nested: bool) -> None:
+    """번호 절차의 상세 항목은 한 단계 더 들여써 계층을 명확히 한다."""
+    paragraph = document.add_paragraph()
+    paragraph.paragraph_format.left_indent = Cm(1.3 if nested else 0.75)
+    paragraph.paragraph_format.first_line_indent = Cm(-0.35)
+    paragraph.paragraph_format.space_after = Pt(3)
+    paragraph.paragraph_format.line_spacing = 1.3
+    marker = paragraph.add_run("• ")
+    _set_run_font(marker, size=10.5)
+    _add_inline_markdown(paragraph, text)
+
+
 def _add_answer(document: Document, answer: str) -> None:
     """화면의 Markdown 가이드를 같은 순서와 문구로 Word 요소로 변환한다."""
     in_code = False
     code_lines: list[str] = []
+    procedure_number = 0
+    in_numbered_procedure = False
 
     def flush_code() -> None:
         if not code_lines:
@@ -118,21 +144,29 @@ def _add_answer(document: Document, answer: str) -> None:
 
         heading = re.match(r"^(#{1,6})\s+(.+)$", line.strip())
         if heading:
+            procedure_number = 0
+            in_numbered_procedure = False
             _add_heading(document, heading.group(2), len(heading.group(1)))
             continue
 
         bullet = re.match(r"^\s*[-*+]\s+(.+)$", line)
         numbered = re.match(r"^\s*\d+[.)]\s+(.+)$", line)
-        if bullet or numbered:
-            paragraph = document.add_paragraph(
-                style="List Bullet" if bullet else "List Number",
+        if numbered:
+            procedure_number += 1
+            in_numbered_procedure = True
+            _add_numbered_step(document, numbered.group(1), procedure_number)
+            continue
+        if bullet:
+            _add_bullet_item(
+                document,
+                bullet.group(1),
+                nested=in_numbered_procedure,
             )
-            paragraph.paragraph_format.space_after = Pt(3)
-            paragraph.paragraph_format.line_spacing = 1.3
-            _add_inline_markdown(paragraph, (bullet or numbered).group(1))
             continue
 
         if re.match(r"^\s*([-*_])\1{2,}\s*$", line):
+            procedure_number = 0
+            in_numbered_procedure = False
             paragraph = document.add_paragraph()
             paragraph.paragraph_format.space_after = Pt(5)
             _shade_paragraph(paragraph, "D9D9D9")
@@ -143,6 +177,9 @@ def _add_answer(document: Document, answer: str) -> None:
         paragraph.paragraph_format.line_spacing = 1.35
         if line:
             _add_inline_markdown(paragraph, line)
+            # 일반 본문이 시작되면 이후 불릿은 새로운 최상위 목록으로 처리한다.
+            procedure_number = 0
+            in_numbered_procedure = False
 
     flush_code()
 
