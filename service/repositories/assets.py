@@ -308,6 +308,7 @@ def create_version_and_job(
     effective_to: date | None, repository: str, branch: str, logical_path: str,
     max_attempts: int, audit_action: str, employee_id: str, employee_name: str,
     department: str, client_ip: str | None, user_agent: str | None,
+    upper_department: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """새 Version과 ingestion job을 원자적으로 생성한다.
 
@@ -346,11 +347,11 @@ def create_version_and_job(
         conn.execute(
             """INSERT INTO upload_audit
                (audit_id, asset_id, version_id, job_id, action, employee_id,
-                employee_name, department, client_ip, user_agent)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                employee_name, department, upper_department, client_ip, user_agent)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 uuid4(), UUID(str(asset_id)), version_id, job_id, audit_action,
-                employee_id, employee_name, department or None,
+                employee_id, employee_name, department or None, upper_department or None,
                 client_ip, user_agent,
             ),
         )

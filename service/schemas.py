@@ -5,10 +5,11 @@ PATCH DTO는 unset과 명시적 null을 구분해 필수 업무 필드가 null�
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, SecretStr, model_validator
 
 AssetType = Literal["document", "incident", "error_trace", "source_code"]
 LifecycleStatus = Literal["draft", "approved", "obsolete"]
@@ -93,6 +94,31 @@ class SearchRequest(BaseModel):
     product: str | None = Field(default=None, max_length=200)
     include_obsolete: bool = False
     limit: int | None = Field(default=None, ge=1, le=200)
+
+
+class UploadSearchCursor(BaseModel):
+    uploaded_at: AwareDatetime
+    asset_id: UUID
+
+
+class UploadSearchRequest(BaseModel):
+    search_term: str = Field(min_length=1, max_length=200)
+    registered_from: date | None = None
+    registered_to: date | None = None
+    limit: int = Field(default=30, ge=1, le=200)
+    cursor: UploadSearchCursor | None = None
+
+    @model_validator(mode="after")
+    def require_search_filter(self) -> UploadSearchRequest:
+        self.search_term = self.search_term.strip()
+        if not self.search_term:
+            raise ValueError("검색조건을 입력해 주세요")
+        if (
+            self.registered_from and self.registered_to
+            and self.registered_from > self.registered_to
+        ):
+            raise ValueError("등록 시작일은 종료일보다 늦을 수 없습니다")
+        return self
 
 
 class ChatHistoryMessage(BaseModel):

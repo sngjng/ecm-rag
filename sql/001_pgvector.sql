@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS rag.upload_audit (
   employee_id text NOT NULL,
   employee_name text NOT NULL,
   department text,
+  upper_department text,
   client_ip inet,
   user_agent text,
   created_at timestamptz NOT NULL DEFAULT now()

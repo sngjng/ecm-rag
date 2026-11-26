@@ -541,6 +541,98 @@
         line-height: 1.65;
       }
 
+      .uploader-search {
+        min-width: 0;
+        margin: 0 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+
+      .uploader-search summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 10px var(--results-heading-inset);
+        cursor: pointer;
+        font-weight: 700;
+        list-style: none;
+      }
+
+      .uploader-search summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .uploader-search summary::after {
+        width: 7px;
+        height: 7px;
+        margin: 0 3px 3px auto;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        content: "";
+        transform: rotate(45deg);
+      }
+
+      .uploader-search[open] summary::after {
+        margin-bottom: 0;
+        transform: rotate(225deg);
+      }
+
+      .uploader-search form {
+        display: grid;
+        gap: 10px;
+        padding: 12px var(--results-heading-inset);
+        border-top: 1px solid var(--line);
+      }
+
+      .uploader-search label {
+        display: grid;
+        gap: 4px;
+        font-size: 0.85rem;
+      }
+
+      .uploader-search input {
+        width: 100%;
+        min-width: 0;
+        padding: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+      }
+
+      .uploader-search button {
+        justify-self: end;
+      }
+
+      .uploader-search__dates {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr));
+        gap: 8px;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      .uploader-search__dates legend {
+        margin-bottom: 4px;
+        padding: 0;
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+
+      .quick-search-pagination:not([hidden]) {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0;
+      }
+
       .result-list {
         display: grid;
         gap: 13px;
@@ -1110,11 +1202,12 @@
       }
 
       .results-section {
+        --results-heading-inset: 12px;
         min-width: 0;
         min-height: 0;
         max-width: none;
         margin: 0;
-        padding: 0 18px 28px;
+        padding: 24px 18px 28px;
         border-left: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.78);
         overflow-x: hidden;
@@ -1153,9 +1246,9 @@
         position: sticky;
         top: 0;
         z-index: 8;
-        min-height: 74px;
-        margin: 0 -18px 14px;
-        padding: 24px 20px 14px;
+        min-height: 46px;
+        margin: 0 0 14px;
+        padding: 10px calc(var(--results-heading-inset) + 1px);
         border-bottom: 1px solid rgba(227, 232, 241, 0.84);
         background: rgba(255, 255, 255, 0.92);
         backdrop-filter: blur(14px);
@@ -1298,7 +1391,7 @@
         .results-section {
           min-height: 420px;
           max-height: none;
-          padding: 0 20px 40px;
+          padding: 20px 20px 40px;
           border-top: 1px solid var(--line);
           border-left: 0;
           overflow: visible;
@@ -1511,11 +1604,13 @@
     <header class="topbar">
       <div class="topbar__inner">
         <div class="brand">
-          <img
-            class="brand__logo"
-            src="/assets/hyundai-hds-logo.png"
-            alt="현대HDS"
-          />
+          <a href="./" aria-label="첫 화면으로 이동">
+            <img
+              class="brand__logo"
+              src="/assets/hyundai-hds-logo.png"
+              alt="현대HDS"
+            />
+          </a>
           <span class="brand__divider" aria-hidden="true"></span>
           <span class="brand__label">IDC본부. 문서조회</span>
         </div>
@@ -1583,7 +1678,7 @@
               <span class="user-role-separator" aria-hidden="true">/</span>
               <span id="user-role" class="user-role-icon" aria-label="사용자 권한">
                 <img data-role-icon="uploader" src="/assets/role-uploader-ant.svg?v=20261023-2" alt="" />
-                <img data-role-icon="admin" src="/assets/infinity-gauntlet.svg?v=20261030-3" alt="" hidden />
+                <img data-role-icon="admin" src="/assets/role-admin-shield.svg" alt="" hidden />
                 <img data-role-icon="viewer" src="/assets/role-viewer-popcorn.svg?v=20261023-2" alt="" hidden />
               </span>
             </span>
@@ -1600,9 +1695,6 @@
         <div class="workspace__scroll">
           <section class="hero">
             <h1>어떤 문서를 찾으시나요?</h1>
-            <p class="hero__description">
-              등록된 문서자산을 자연어로 검색하고 관련 원문과 출처를 확인합니다.
-            </p>
             <dl
               id="asset-summary"
               class="asset-summary"
@@ -1729,11 +1821,21 @@
       </section>
 
       <section class="results-section" aria-labelledby="results-title">
+        <details id="uploader-search" class="uploader-search" hidden>
+          <summary>빠른 검색</summary>
+          <form id="uploader-search-form">
+            <label>검색조건 <input name="search_term" maxlength="200" placeholder="팀명, 상위부서명, 사번 또는 이름" required /></label>
+            <fieldset class="uploader-search__dates">
+              <legend>등록일자 (선택)</legend>
+              <label>시작일 <input type="date" name="registered_from" /></label>
+              <label>종료일 <input type="date" name="registered_to" /></label>
+            </fieldset>
+            <button id="uploader-search-button" class="search-button" type="submit">조회</button>
+          </form>
+        </details>
         <div class="results-header">
           <h2 id="results-title" class="results-title">검색 결과</h2>
-          <span id="results-count" class="results-count"
-            >질문을 입력해 주세요</span
-          >
+          <span id="results-count" class="results-count"></span>
         </div>
         <div id="results">
           <div class="empty-state">
@@ -1741,6 +1843,11 @@
             <p>질문과 관련된 문서 청크가<br />출처 정보와 함께 표시됩니다.</p>
           </div>
         </div>
+        <nav id="quick-search-pagination" class="quick-search-pagination" aria-label="빠른 검색 페이지" hidden>
+          <button id="quick-search-previous" class="search-button" type="button">이전</button>
+          <span id="quick-search-page"></span>
+          <button id="quick-search-next" class="search-button" type="button">다음</button>
+        </nav>
       </section>
 
       <p
@@ -1783,6 +1890,14 @@
       const queryInput = document.querySelector("#query");
       const searchButton = document.querySelector("#search-button");
       const searchButtonLabel = document.querySelector("#search-button-label");
+      const uploaderSearch = document.querySelector("#uploader-search");
+      const uploaderSearchForm = document.querySelector("#uploader-search-form");
+      const uploaderSearchButton = document.querySelector("#uploader-search-button");
+      const quickSearchPagination = document.querySelector("#quick-search-pagination");
+      const quickSearchPrevious = document.querySelector("#quick-search-previous");
+      const quickSearchNext = document.querySelector("#quick-search-next");
+      const quickSearchPageLabel = document.querySelector("#quick-search-page");
+      let quickSearchState = { filters: {}, cursors: [], nextCursor: null };
       const resultsContainer = document.querySelector("#results");
       const resultsCount = document.querySelector("#results-count");
       const errorPanel = document.querySelector("#error-panel");
@@ -1903,6 +2018,7 @@
         }
 
         const user = await response.json();
+        uploaderSearch.hidden = user.temporary_access;
         const roles = Array.isArray(user.roles)
           ? user.roles.map((role) => String(role).toLowerCase())
           : [];
@@ -1967,10 +2083,14 @@
         }
       }
 
-      function setLoading(isLoading) {
+      function setLoading(isLoading, uploaderLookup = false) {
         searchButton.disabled = isLoading;
-        searchButton.classList.toggle("is-loading", isLoading);
-        searchButtonLabel.textContent = isLoading ? "답변 생성 중" : "질문하기";
+        uploaderSearchButton.disabled = isLoading;
+        quickSearchPrevious.disabled = isLoading;
+        quickSearchNext.disabled = isLoading;
+        searchButton.classList.toggle("is-loading", isLoading && !uploaderLookup);
+        searchButtonLabel.textContent = isLoading && !uploaderLookup ? "답변 생성 중" : "질문하기";
+        uploaderSearchButton.textContent = isLoading && uploaderLookup ? "조회 중" : "조회";
       }
 
       function showError(message) {
@@ -1988,6 +2108,7 @@
         return [
           result.source_filename,
           result.version_label && `버전 ${result.version_label}`,
+          result.registered_date && `등록일 ${result.registered_date}`,
           pages,
           result.kind && `유형 ${result.kind}`,
         ]
@@ -2122,8 +2243,12 @@
 
         actions.append(originalDownload, markdownView);
 
-        identity.append(title, meta, chunkCount);
-        head.append(rank, identity, score);
+        identity.append(title, meta);
+        head.append(rank, identity);
+        if (!result.uploaded_at) {
+          identity.append(chunkCount);
+          head.append(score);
+        }
         article.append(head, content, actions);
         return article;
       }
@@ -2151,7 +2276,8 @@
         return Array.from(documents.values());
       }
 
-      function renderResults(results) {
+      function renderResults(results, uploaderLookup = false) {
+        if (!uploaderLookup) quickSearchPagination.hidden = true;
         const documentResults = uniqueDocumentResults(results);
         resultsContainer.replaceChildren();
         resultsCount.textContent = `${documentResults.length}개 문서`;
@@ -2159,8 +2285,9 @@
         if (documentResults.length === 0) {
           const empty = document.createElement("div");
           empty.className = "empty-state";
-          empty.innerHTML =
-            '<span class="empty-state__icon" aria-hidden="true">⌕</span><p>검색 결과가 없습니다.<br>다른 표현으로 다시 질문해 주세요.</p>';
+          empty.innerHTML = uploaderLookup
+            ? '<span class="empty-state__icon" aria-hidden="true">⌕</span><p>입력한 조건에 맞는 문서가 없습니다.</p>'
+            : '<span class="empty-state__icon" aria-hidden="true">⌕</span><p>검색 결과가 없습니다.<br>다른 표현으로 다시 질문해 주세요.</p>';
           resultsContainer.append(empty);
           return;
         }
@@ -2425,11 +2552,85 @@
 
       form.addEventListener("submit", (event) => {
         event.preventDefault();
+        if (searchButton.disabled) return;
         const query = queryInput.value.trim();
         if (query.length >= 2) {
           queryInput.value = "";
           resizeQueryInput();
           askDocuments(query);
+        }
+      });
+
+      uploaderSearchForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (uploaderSearchButton.disabled) return;
+
+        const filters = Object.fromEntries(
+          [...new FormData(uploaderSearchForm)].map(([key, value]) => [key, value.trim()]),
+        );
+        if (!filters.search_term) {
+          showError("검색조건을 입력해 주세요.");
+          uploaderSearchForm.elements.search_term.focus();
+          return;
+        }
+        const { registered_from: from, registered_to: to } = filters;
+        const { registered_from: startDate, registered_to: endDate } = uploaderSearchForm.elements;
+        if (from && to && startDate.valueAsNumber > endDate.valueAsNumber) {
+          showError("등록 시작일은 종료일보다 늦을 수 없습니다.");
+          endDate.focus();
+          return;
+        }
+        if (!from) delete filters.registered_from;
+        if (!to) delete filters.registered_to;
+        loadQuickSearchPage(filters, [null]);
+      });
+
+      async function loadQuickSearchPage(filters, cursors) {
+        showError("");
+        setLoading(true, true);
+        const previousCount = resultsCount.textContent;
+        resultsCount.textContent = "빠른 검색 중";
+        try {
+          const response = await fetch("/api/v1/search/uploads", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...filters, cursor: cursors.at(-1), limit: 20 }),
+          });
+          if (response.status === 401) {
+            window.location.replace("/login");
+            return;
+          }
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(typeof payload.detail === "string" ? payload.detail : "빠른 검색에 실패했습니다.");
+          }
+          renderResults(payload.results, true);
+          quickSearchState = { filters, cursors, nextCursor: payload.next_cursor };
+          quickSearchPageLabel.textContent = `${cursors.length}페이지`;
+          quickSearchPrevious.hidden = cursors.length === 1;
+          quickSearchNext.hidden = !payload.next_cursor;
+          quickSearchPagination.hidden = quickSearchPrevious.hidden && quickSearchNext.hidden;
+          liveStatus.textContent = `${cursors.length}페이지에 검색 결과 ${payload.results.length}건을 표시했습니다.`;
+        } catch (error) {
+          resultsCount.textContent = previousCount;
+          showError(error.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      quickSearchPrevious.addEventListener("click", () => {
+        const { filters, cursors } = quickSearchState;
+        if (cursors.length > 1 && !quickSearchPrevious.disabled) {
+          loadQuickSearchPage(filters, cursors.slice(0, -1));
+        }
+      });
+
+      quickSearchNext.addEventListener("click", () => {
+        const { filters, cursors, nextCursor } = quickSearchState;
+        if (nextCursor && !quickSearchNext.disabled) {
+          loadQuickSearchPage(filters, [...cursors, nextCursor]);
         }
       });
 

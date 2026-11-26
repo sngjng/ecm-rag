@@ -11,6 +11,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -128,12 +129,27 @@ class RerankerSettings(SettingsModel):
     enabled: bool = False
     provider: str = "local_flag_embedding"
     model_path: str = ""
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+    timeout_seconds: int = Field(default=30, ge=1)
+    max_input_characters: int = Field(default=4000, ge=1)
     use_fp16: bool = False
     top_k: int = Field(default=10, ge=1)
 
     @model_validator(mode="after")
     def require_model_when_enabled(self) -> RerankerSettings:
-        if self.enabled and not self.model_path:
+        self.base_url = self.base_url.strip()
+        self.model = self.model.strip()
+        if not self.enabled:
+            return self
+        if self.base_url:
+            url = urlsplit(self.base_url)
+            if url.scheme not in {"http", "https"} or not url.hostname:
+                raise ValueError("models.reranker.base_url에는 HTTP(S) 엔드포인트가 필요합니다")
+            if not self.model:
+                raise ValueError("원격 리랭커에는 models.reranker.model이 필요합니다")
+        elif not self.model_path.strip():
             raise ValueError("models.reranker.enabled=true이면 model_path가 필요합니다")
         return self
 

@@ -1,7 +1,7 @@
 """PostgreSQL exact + FTS + pgvector 검색을 통합하는 hybrid retrieval 서비스.
 
 동일한 질의를 식별자, 전문검색, 의미검색 lane에 각각 보내고 RRF(Reciprocal Rank
-Fusion)로 순위를 결합한다. 선택적으로 로컬 reranker를 마지막 단계에 적용한다.
+Fusion)로 순위를 결합한다. 선택적으로 로컬 또는 HTTP reranker를 마지막 단계에 적용한다.
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from retrieval.rrf import reciprocal_rank_fusion
 from service.config import get_settings
 from service.db import connect
 from service.embedding import embed
+from service.reranking import rerank_remote
+from service.schemas import UploadSearchRequest
 
 TOKEN = re.compile(r"[\w.$/-]{3,}", re.UNICODE)
 STACK_FRAME = re.compile(
@@ -316,15 +318,18 @@ def _rerank_candidates(
     limit: int,
     settings: Any,
 ) -> tuple[list[str], dict[str, float]]:
-    """DB 연결을 보유하지 않은 상태에서 선택적 로컬 reranker를 실행한다."""
+    """DB 연결을 보유하지 않은 상태에서 선택적 reranker를 실행한다."""
     reranker = settings.models.reranker
     if not reranker.enabled or not ranked:
         return ranked, {}
-    reranked = get_reranker(reranker.model_path, reranker.use_fp16).rerank(
-        query,
-        [by_id[chunk_id]["content"] for chunk_id in ranked],
-        top_k=min(limit, reranker.top_k),
-    )
+    documents = [by_id[chunk_id]["content"] for chunk_id in ranked]
+    top_k = min(limit, reranker.top_k)
+    if reranker.base_url:
+        reranked = rerank_remote(reranker, query, documents, top_k)
+    else:
+        reranked = get_reranker(reranker.model_path, reranker.use_fp16).rerank(
+            query, documents, top_k=top_k,
+        )
     return (
         [ranked[index] for index, _ in reranked],
         {ranked[index]: score for index, score in reranked},
@@ -348,6 +353,68 @@ def _fetch_neighbor_content(
         (list(neighbor_ids),),
     ).fetchall()
     return {row["chunk_id"]: row["display_content"] for row in rows}
+
+
+def search_by_uploader(request: UploadSearchRequest) -> dict[str, Any]:
+    """업로드 이력과 실제 버전을 연결하고 자산당 최신 일치 결과 한 건을 조회한다."""
+    retrieval = get_settings().retrieval
+    page_size = min(request.limit, retrieval.max_limit)
+    cursor_time = request.cursor.uploaded_at if request.cursor else None
+    cursor_asset_id = request.cursor.asset_id if request.cursor else None
+    # LIKE 메타문자는 리터럴로 검색하고 pg_trgm 인덱스를 사용할 수 있게 한다.
+    escaped_term = request.search_term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_term}%"
+    with connect() as conn:
+        rows = conn.execute(
+            """WITH matches AS (
+                   SELECT DISTINCT ON (a.asset_id)
+                       a.asset_id, a.asset_type, a.title, a.vendor, a.product, a.system_name,
+                       v.version_id, v.version_label, v.source_filename, v.lifecycle_status,
+                       u.created_at AS uploaded_at,
+                       (u.created_at AT TIME ZONE 'Asia/Seoul')::date AS registered_date
+                   FROM upload_audit u
+                   JOIN asset_versions v ON v.version_id=u.version_id AND v.asset_id=u.asset_id
+                   JOIN assets a ON a.asset_id=v.asset_id
+                   WHERE a.deleted_at IS NULL
+                     AND (%s OR v.is_current)
+                     AND (%s OR v.lifecycle_status='approved')
+                     AND (lower(u.employee_id)=lower(%s)
+                          OR u.employee_name ILIKE %s
+                          OR u.department ILIKE %s
+                          OR u.upper_department ILIKE %s)
+                     AND (%s::date IS NULL OR
+                          u.created_at >= (%s::date::timestamp AT TIME ZONE 'Asia/Seoul'))
+                     AND (%s::date IS NULL OR
+                          u.created_at < ((%s::date + 1)::timestamp AT TIME ZONE 'Asia/Seoul'))
+                     AND EXISTS (SELECT 1 FROM chunks c WHERE c.version_id=v.version_id)
+                   ORDER BY a.asset_id, u.created_at DESC, u.audit_id DESC
+               ), result_page AS (
+                   SELECT * FROM matches
+                   WHERE %s::timestamptz IS NULL OR (uploaded_at, asset_id) < (%s, %s)
+                   ORDER BY uploaded_at DESC, asset_id DESC
+                   LIMIT %s
+               )
+               SELECT result_page.*, preview.content
+               FROM result_page
+               LEFT JOIN LATERAL (
+                   SELECT left(c.display_content, 600) AS content FROM chunks c
+                   WHERE c.version_id=result_page.version_id ORDER BY c.chunk_seq LIMIT 1
+               ) preview ON true
+               ORDER BY uploaded_at DESC, asset_id DESC""",
+            (
+                not retrieval.current_versions_only, not retrieval.approved_versions_only,
+                request.search_term, pattern, pattern, pattern,
+                request.registered_from, request.registered_from,
+                request.registered_to, request.registered_to,
+                cursor_time, cursor_time, cursor_asset_id, page_size + 1,
+            ),
+        ).fetchall()
+    results = rows[:page_size]
+    next_cursor = None
+    if len(rows) > page_size:
+        last = results[-1]
+        next_cursor = {"uploaded_at": last["uploaded_at"], "asset_id": last["asset_id"]}
+    return {"results": results, "next_cursor": next_cursor}
 
 
 def search(

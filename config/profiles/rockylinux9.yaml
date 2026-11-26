@@ -73,9 +73,9 @@ models:
     http_max_connections: 20
     http_max_keepalive_connections: 10
   reranker:
-    enabled: true
+    enabled: false
     provider: local_flag_embedding
-    model_path: "${RAG_RERANK_MODEL_PATH}"
+    model_path: "${RAG_RERANK_MODEL_PATH:-}"
     use_fp16: true
     top_k: 10
 

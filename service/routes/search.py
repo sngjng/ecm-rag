@@ -1,11 +1,18 @@
 """OpenWebUI/내부 서비스가 호출할 PostgreSQL hybrid search endpoint."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from service.dependencies import authorize
-from service.schemas import SearchRequest
-from service.search import search
+from service.schemas import SearchRequest, UploadSearchRequest
+from service.search import search, search_by_uploader
 
 
 router = APIRouter(prefix="/search", tags=["search"], dependencies=[Depends(authorize)])
+
+
+@router.post("/uploads")
+def query_uploads(request: UploadSearchRequest, current_user: dict = Depends(authorize)):
+    if current_user.get("temporary_access"):
+        raise HTTPException(403, "빠른 검색은 로그인 후 이용할 수 있습니다.")
+    return search_by_uploader(request)
 
 
 @router.post("")

@@ -45,6 +45,7 @@ async def upload(
     lifecycle_status: str = Form(""), is_current: bool = Form(True),
     repository: str = Form(""), branch: str = Form(""), logical_path: str = Form(""),
     duplicate_action: str = Form("check"), confirmed_asset_id: str = Form(""),
+    use_uploader_department: bool = Form(False),
     current_user: dict = Depends(authorize_uploader),
 ):
     """원본 파일을 저장하고 비동기 처리 작업을 등록한다.
@@ -221,6 +222,12 @@ async def upload(
                 raise HTTPException(409, "기존 asset_type과 업로드 유형이 다릅니다")
         else:
             # 신규 Asset 경로. 파일 저장이 끝난 후 메타데이터 원장을 만든다.
+            if (
+                use_uploader_department
+                and not owner_org.strip()
+                and not current_user.get("temporary_access")
+            ):
+                owner_org = (current_user.get("department") or "").strip()[:200]
             created = assets.create_asset(AssetCreate(
                 asset_type=asset_type, subtype=subtype, title=resolved_title,
                 vendor=vendor or None, product=product or None,
@@ -242,6 +249,7 @@ async def upload(
             employee_id=current_user["employee_id"],
             employee_name=current_user["employee_name"],
             department=current_user.get("department") or "",
+            upper_department=current_user.get("upper_department") or "",
             client_ip=normalize_client_ip(request.client.host if request.client else None),
             user_agent=request.headers.get("user-agent", "")[:500] or None,
         )

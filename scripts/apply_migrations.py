@@ -23,6 +23,8 @@ MIGRATIONS = (
     ROOT / "sql" / "007_incident_guide_template.sql",
     ROOT / "sql" / "008_incident_timestamp_template.sql",
     ROOT / "sql" / "009_lightweight_graphrag.sql",
+    ROOT / "sql" / "010_upload_audit_upper_department.sql",
+    ROOT / "sql" / "011_upload_audit_quick_search_indexes.sql",
 )
 
 
